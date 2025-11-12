@@ -335,25 +335,67 @@ async function printTickets() {
     
     // Validar límites
     if (totalTickets > 2000) {
-        alert('⚠️ Por favor, limita la generación a máximo 2000 tickets para mantener el rendimiento óptimo.');
+        toast.warning(
+            'Por favor, limita la generación a máximo 2000 tickets para mantener el rendimiento óptimo.',
+            'Demasiados tickets ⚠️'
+        );
         return;
     }
     
     if (totalTickets > 500) {
-        const confirmLarge = confirm(`🚨 Estás a punto de generar ${totalTickets} tickets.\n\n` +
-            'Este proceso puede tomar varios segundos.\n' +
-            '¿Deseas continuar con la generación optimizada?');
+        // Mostrar toast de confirmación con botones
+        const confirmToast = toast.info(
+            `Estás a punto de generar ${totalTickets} tickets. Este proceso puede tomar varios segundos.`,
+            '🚨 Generación masiva de tickets',
+            0 // Sin auto-cierre
+        );
         
-        if (!confirmLarge) return;
+        // Agregar botones de acción al toast
+        setTimeout(() => {
+            const toastElement = document.querySelector(`[data-toast-id="${confirmToast}"]`);
+            if (toastElement) {
+                const actionButtons = document.createElement('div');
+                actionButtons.style.marginTop = '10px';
+                actionButtons.style.display = 'flex';
+                actionButtons.style.gap = '10px';
+                
+                const continueBtn = document.createElement('button');
+                continueBtn.textContent = 'Continuar';
+                continueBtn.style.padding = '8px 16px';
+                continueBtn.style.backgroundColor = '#4CAF50';
+                continueBtn.style.color = 'white';
+                continueBtn.style.border = 'none';
+                continueBtn.style.borderRadius = '4px';
+                continueBtn.style.cursor = 'pointer';
+                continueBtn.onclick = async () => {
+                    toast.hide(confirmToast);
+                    // Continuar con la generación
+                    await continueGeneration(config);
+                };
+                
+                const cancelBtn = document.createElement('button');
+                cancelBtn.textContent = 'Cancelar';
+                cancelBtn.style.padding = '8px 16px';
+                cancelBtn.style.backgroundColor = '#f44336';
+                cancelBtn.style.color = 'white';
+                cancelBtn.style.border = 'none';
+                cancelBtn.style.borderRadius = '4px';
+                cancelBtn.style.cursor = 'pointer';
+                cancelBtn.onclick = () => {
+                    toast.hide(confirmToast);
+                };
+                
+                actionButtons.appendChild(continueBtn);
+                actionButtons.appendChild(cancelBtn);
+                toastElement.appendChild(actionButtons);
+            }
+        }, 100);
+        
+        return; // Salir y esperar la decisión del usuario
     }
     
-    try {
-        // Usar el generador optimizado
-        await window.pdfGenerator.generatePDF(config);
-    } catch (error) {
-        console.error('Error al generar PDF:', error);
-        alert('❌ Error al generar el PDF: ' + error.message);
-    }
+    // Si es menos de 500 tickets, continuar directamente
+    await continueGeneration(config);
 }
 
 /**
@@ -446,6 +488,22 @@ function setupImageUpload() {
             };
             reader.readAsDataURL(file);
         }
+    }
+}
+
+/**
+ * Continúa con la generación de PDF después de la confirmación
+ */
+async function continueGeneration(config) {
+    try {
+        // Usar el generador optimizado
+        await window.pdfGenerator.generatePDF(config);
+    } catch (error) {
+        console.error('Error al generar PDF:', error);
+        toast.error(
+            'Error al generar el PDF: ' + error.message,
+            'Error en la generación ❌'
+        );
     }
 }
 

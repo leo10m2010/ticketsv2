@@ -32,11 +32,18 @@ class PDFGenerator {
         try {
             // Validar límites
             if (totalTickets > 2000) {
-                throw new Error('Máximo 2000 tickets permitidos para mantener el rendimiento');
+                toast.error(
+                    'Máximo 2000 tickets permitidos para mantener el rendimiento. Por favor, genera los tickets en lotes más pequeños.',
+                    'Demasiados tickets'
+                );
+                return;
             }
 
-            // Mostrar diálogo de progreso
-            this.showProgressDialog();
+            // Mostrar toast de progreso
+        this.progressToastId = toast.progress('Iniciando generación de PDF...', 'Generando tickets');
+
+            // Registrar estadísticas iniciales
+            const startMemory = this.getMemoryUsage();
 
             // Usar estrategia según el volumen
             if (totalTickets <= 100) {
@@ -47,19 +54,43 @@ class PDFGenerator {
 
             const endTime = performance.now();
             const duration = (endTime - startTime) / 1000;
+            const endMemory = this.getMemoryUsage();
+            const memoryUsed = ((endMemory - startMemory) / 1024 / 1024).toFixed(1);
+            const ticketsPerSecond = totalTickets / duration;
 
-            this.hideProgressDialog();
-            this.showSuccessMessage(totalTickets, duration);
+            // Cerrar toast de progreso y mostrar éxito
+            if (this.progressToastId) {
+                toast.complete(
+                    this.progressToastId,
+                    `📊 Estadísticas de generación:\n• Tiempo total: ${duration.toFixed(1)}s\n• Tickets generados: ${totalTickets}\n• Memoria usada: ${memoryUsed}MB\n• Velocidad: ${ticketsPerSecond.toFixed(1)} tickets/segundo`,
+                    'success',
+                    5000
+                );
+            }
 
         } catch (error) {
-            this.hideProgressDialog();
-            if (this.isCancelled) {
-                this.showCancelledMessage();
-            } else {
-                throw error;
+            // Cerrar toast de progreso
+            if (this.progressToastId) {
+                toast.hide(this.progressToastId);
             }
+            
+            if (error.message === 'Proceso cancelado por el usuario') {
+                toast.warning(
+                    'La generación de PDF fue cancelada exitosamente.',
+                    'Proceso cancelado ⏹️'
+                );
+            } else {
+                toast.error(
+                    `${error.message} Por favor, intenta con menos tickets o recarga la página.`,
+                    'Error en la generación ❌'
+                );
+            }
+            
+            throw error;
         } finally {
             this.isProcessing = false;
+            this.isCancelled = false;
+            this.progressToastId = null;
             this.cleanup();
         }
     }
@@ -81,7 +112,7 @@ class PDFGenerator {
             await this.processPage(page, config);
             
             const progress = ((page + 1) / totalPages) * 100;
-            this.updateProgress(progress, `Generando página ${page + 1} de ${totalPages}`);
+            toast.update(this.progressToastId, `Generando página ${page + 1} de ${totalPages}`, `Progreso: ${progress.toFixed(0)}%`);
             
             // Pequeña pausa para no bloquear la UI
             await this.sleep(10);
@@ -192,7 +223,17 @@ class PDFGenerator {
         if (!this.isCancelled) {
             this.updateProgress(95, 'Preparando impresión...');
             await this.sleep(200);
+            
+            // Ocultar toast temporalmente antes de imprimir
+            this.hideToastForPrint();
+            
+            // Pequeña pausa para asegurar que los toast se oculten
+            await this.sleep(100);
+            
             window.print();
+            
+            // Restaurar toast después de imprimir (opcional)
+            setTimeout(() => this.restoreToastAfterPrint(), 500);
         }
     }
 
@@ -257,170 +298,32 @@ class PDFGenerator {
         await Promise.all(imagePromises);
     }
 
-    /**
-     * Muestra el diálogo de progreso
-     */
-    showProgressDialog() {
-        const dialogHTML = `
-            <div id="pdfProgressDialog" style="
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.8);
-                z-index: 10000;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            ">
-                <div style="
-                    background: white;
-                    padding: 30px;
-                    border-radius: 15px;
-                    text-align: center;
-                    min-width: 300px;
-                    max-width: 500px;
-                ">
-                    <h3 style="margin-bottom: 20px; color: #2c3e50;">
-                        <i class="fas fa-file-pdf"></i> Generando PDF
-                    </h3>
-                    <div style="
-                        width: 100%;
-                        height: 20px;
-                        background: #ecf0f1;
-                        border-radius: 10px;
-                        overflow: hidden;
-                        margin-bottom: 15px;
-                    ">
-                        <div id="pdfProgressBar" style="
-                            height: 100%;
-                            background: linear-gradient(135deg, #27ae60, #2ecc71);
-                            width: 0%;
-                            transition: width 0.3s ease;
-                        "></div>
-                    </div>
-                    <p id="pdfProgressText" style="margin-bottom: 20px; color: #7f8c8d;">
-                        Iniciando generación...
-                    </p>
-                    <button id="pdfCancelBtn" style="
-                        background: #e74c3c;
-                        color: white;
-                        border: none;
-                        padding: 10px 20px;
-                        border-radius: 5px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">
-                        <i class="fas fa-times"></i> Cancelar
-                    </button>
-                </div>
-            </div>
-        `;
 
-        document.body.insertAdjacentHTML('beforeend', dialogHTML);
-        
-        // Configurar botón de cancelar
-        document.getElementById('pdfCancelBtn').addEventListener('click', () => {
-            this.cancel();
-        });
-    }
 
-    /**
-     * Actualiza el progreso
-     */
-    updateProgress(percentage, message) {
-        const progressBar = document.getElementById('pdfProgressBar');
-        const progressText = document.getElementById('pdfProgressText');
-        
-        if (progressBar && progressText) {
-            progressBar.style.width = percentage + '%';
-            progressText.textContent = message;
-        }
 
-        if (this.progressCallback) {
-            this.progressCallback(percentage, message);
-        }
-    }
 
-    /**
-     * Oculta el diálogo de progreso
-     */
-    hideProgressDialog() {
-        const dialog = document.getElementById('pdfProgressDialog');
-        if (dialog) {
-            dialog.remove();
-        }
-    }
+
 
     /**
      * Cancela la generación
      */
     cancel() {
-        this.isCancelled = true;
-        if (this.cancelCallback) {
-            this.cancelCallback();
+        if (this.isProcessing && !this.isCancelled) {
+            this.isCancelled = true;
+            if (this.cancelCallback) {
+                this.cancelCallback();
+            }
+            
+            // Actualizar el toast para mostrar que se está cancelando
+            if (this.progressToastId) {
+                toast.update(this.progressToastId, 'Cancelando generación...', 'Procesando cancelación');
+            }
         }
     }
 
-    /**
-     * Muestra mensaje de éxito
-     */
-    showSuccessMessage(totalTickets, duration) {
-        const message = `
-            <div style="
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #27ae60;
-                color: white;
-                padding: 15px 20px;
-                border-radius: 8px;
-                z-index: 10001;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            ">
-                <i class="fas fa-check-circle"></i>
-                ¡PDF generado exitosamente!
-                <br><small>${totalTickets} tickets en ${duration.toFixed(1)} segundos</small>
-            </div>
-        `;
-        
-        document.body.insertAdjacentHTML('beforeend', message);
-        
-        setTimeout(() => {
-            const successDiv = document.querySelector('div[style*="#27ae60"]');
-            if (successDiv) successDiv.remove();
-        }, 5000);
-    }
 
-    /**
-     * Muestra mensaje de cancelación
-     */
-    showCancelledMessage() {
-        const message = `
-            <div style="
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #f39c12;
-                color: white;
-                padding: 15px 20px;
-                border-radius: 8px;
-                z-index: 10001;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            ">
-                <i class="fas fa-info-circle"></i>
-                Generación cancelada por el usuario
-            </div>
-        `;
-        
-        document.body.insertAdjacentHTML('beforeend', message);
-        
-        setTimeout(() => {
-            const cancelledDiv = document.querySelector('div[style*="#f39c12"]');
-            if (cancelledDiv) cancelledDiv.remove();
-        }, 3000);
-    }
+
+
 
     /**
      * Limpieza de memoria
@@ -462,6 +365,42 @@ class PDFGenerator {
             return performance.memory.usedJSHeapSize;
         }
         return 0; // Fallback si no está disponible
+    }
+
+    /**
+     * Oculta los toast temporalmente antes de imprimir
+     */
+    hideToastForPrint() {
+        const toastContainer = document.querySelector('.toast-container');
+        if (toastContainer) {
+            toastContainer.style.display = 'none';
+            toastContainer.style.visibility = 'hidden';
+        }
+        
+        // También ocultar cualquier toast individual
+        const toasts = document.querySelectorAll('.toast');
+        toasts.forEach(toast => {
+            toast.style.display = 'none';
+            toast.style.visibility = 'hidden';
+        });
+    }
+
+    /**
+     * Restaura los toast después de imprimir
+     */
+    restoreToastAfterPrint() {
+        const toastContainer = document.querySelector('.toast-container');
+        if (toastContainer) {
+            toastContainer.style.display = '';
+            toastContainer.style.visibility = '';
+        }
+        
+        // Restaurar toasts individuales
+        const toasts = document.querySelectorAll('.toast');
+        toasts.forEach(toast => {
+            toast.style.display = '';
+            toast.style.visibility = '';
+        });
     }
 
     /**

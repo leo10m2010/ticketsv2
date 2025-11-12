@@ -892,8 +892,171 @@ html {
 	transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Sistema de notificaciones Toast */
+.toast-container {
+	position: fixed;
+	top: 20px;
+	right: 20px;
+	z-index: 10001;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	pointer-events: none;
+}
+
+.toast {
+	background: white;
+	border-radius: 10px;
+	padding: 16px 20px;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 300px;
+	max-width: 400px;
+	transform: translateX(400px);
+	transition: transform 0.3s ease, opacity 0.3s ease;
+	pointer-events: auto;
+}
+
+.toast.show {
+	transform: translateX(0);
+}
+
+.toast.hide {
+	transform: translateX(400px);
+	opacity: 0;
+}
+
+.toast-icon {
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-weight: bold;
+	flex-shrink: 0;
+}
+
+.toast-success .toast-icon {
+	background: #2ed573;
+	color: white;
+}
+
+.toast-error .toast-icon {
+	background: #ff4757;
+	color: white;
+}
+
+.toast-warning .toast-icon {
+	background: #ffa502;
+	color: white;
+}
+
+.toast-info .toast-icon {
+	background: #3742fa;
+	color: white;
+}
+
+.toast-content {
+	flex: 1;
+}
+
+.toast-title {
+	font-weight: 600;
+	font-size: 14px;
+	margin-bottom: 2px;
+	color: #333;
+}
+
+.toast-message {
+	font-size: 13px;
+	color: #666;
+	line-height: 1.4;
+}
+
+.toast-close {
+	background: none;
+	border: none;
+	font-size: 18px;
+	color: #999;
+	cursor: pointer;
+	padding: 0;
+	width: 20px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	transition: all 0.2s ease;
+}
+
+.toast-close:hover {
+	background: #f5f5f5;
+	color: #666;
+}
+
+/* Animaciones específicas para toast */
+@keyframes toastSlideIn {
+	from {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+@keyframes toastSlideOut {
+	from {
+		transform: translateX(0);
+		opacity: 1;
+	}
+	to {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+}
+
+/* Responsive para toast */
+@media (max-width: 768px) {
+	.toast-container {
+		top: 10px;
+		right: 10px;
+		left: 10px;
+	}
+	
+	.toast {
+		min-width: auto;
+		max-width: none;
+		width: 100%;
+	}
+	
+	.toast.show {
+		transform: translateY(0);
+	}
+	
+	.toast.hide {
+		transform: translateY(-100%);
+	}
+}
+
 /* Optimización de impresión para lotes grandes */
 @media print {
+	/* Ocultar absolutamente todos los elementos de UI que no deben imprimirse */
+	.toast-container,
+	.toast,
+	.toast.show,
+	.toast.hide,
+	#pdfProgressDialog,
+	.pdf-progress-overlay {
+		display: none !important;
+		visibility: hidden !important;
+		opacity: 0 !important;
+	}
+	
 	/* Reducir calidad de impresión para mejorar rendimiento */
 	.print-page.tickets-6 .ticket {
 		transform: scale(0.65);
