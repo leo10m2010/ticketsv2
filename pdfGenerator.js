@@ -5,24 +5,20 @@
 
 class PDFGenerator {
     constructor() {
-        this.batchSize = 50; // Tamaño del lote para procesamiento
-        this.maxMemoryUsage = 400 * 1024 * 1024; // 400MB límite de memoria
+        // Usar configuración global
+        const config = window.APP_CONFIG || { PDF: { BATCH_SIZE: 50, MAX_MEMORY_MB: 400 } };
+        this.batchSize = config.PDF.BATCH_SIZE;
+        this.maxMemoryUsage = config.PDF.MAX_MEMORY_MB * 1024 * 1024;
         this.isCancelled = false;
         this.isProcessing = false;
-        this.progressCallback = null;
-        this.cancelCallback = null;
     }
 
     /**
      * Genera PDF optimizado con soporte para grandes volúmenes
      * @param {Object} config - Configuración de los tickets
-     * @param {Function} progressCallback - Callback para actualizar progreso
-     * @param {Function} cancelCallback - Callback para manejar cancelación
      * @returns {Promise<void>}
      */
-    async generatePDF(config, progressCallback = null, cancelCallback = null) {
-        this.progressCallback = progressCallback;
-        this.cancelCallback = cancelCallback;
+    async generatePDF(config) {
         this.isCancelled = false;
         this.isProcessing = true;
 
@@ -30,10 +26,11 @@ class PDFGenerator {
         const totalTickets = config.endNumber - config.startNumber + 1;
 
         try {
-            // Validar límites
-            if (totalTickets > 2000) {
+            // Validar límites usando configuración
+            const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_TOTAL: 2000 } };
+            if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
                 toast.error(
-                    'Máximo 2000 tickets permitidos para mantener el rendimiento. Por favor, genera los tickets en lotes más pequeños.',
+                    `Máximo ${appConfig.PDF.MAX_TICKETS_TOTAL} tickets permitidos para mantener el rendimiento. Por favor, genera los tickets en lotes más pequeños.`,
                     'Demasiados tickets'
                 );
                 return;
@@ -283,19 +280,41 @@ class PDFGenerator {
     }
 
     /**
-     * Espera a que todas las imágenes se carguen
+     * Espera a que todas las imágenes se carguen con timeout
      */
-    async waitForImages() {
+    async waitForImages(timeout = null) {
+        const appConfig = window.APP_CONFIG || { TIMING: { IMAGE_LOAD_TIMEOUT: 10000 } };
+        const imageTimeout = timeout || appConfig.TIMING.IMAGE_LOAD_TIMEOUT;
+
         const images = document.querySelectorAll('#printArea img');
         const imagePromises = Array.from(images).map(img => {
             if (img.complete) return Promise.resolve();
-            return new Promise((resolve, reject) => {
-                img.addEventListener('load', resolve);
-                img.addEventListener('error', reject);
-            });
+
+            return Promise.race([
+                new Promise((resolve) => {
+                    const handleLoad = () => {
+                        img.removeEventListener('load', handleLoad);
+                        img.removeEventListener('error', handleLoad);
+                        resolve();
+                    };
+                    img.addEventListener('load', handleLoad);
+                    img.addEventListener('error', handleLoad);
+                }),
+                new Promise((resolve) =>
+                    setTimeout(() => {
+                        console.warn('Image load timeout:', img.src);
+                        resolve();
+                    }, imageTimeout)
+                )
+            ]);
         });
 
-        await Promise.all(imagePromises);
+        try {
+            await Promise.all(imagePromises);
+        } catch (error) {
+            // Si alguna imagen falla, continuamos de todas formas
+            console.warn('Error loading images:', error);
+        }
     }
 
 
@@ -305,19 +324,44 @@ class PDFGenerator {
 
 
     /**
-     * Cancela la generación
+     * Cancela la generación con cleanup completo
      */
     cancel() {
         if (this.isProcessing && !this.isCancelled) {
             this.isCancelled = true;
-            if (this.cancelCallback) {
-                this.cancelCallback();
+
+            // Limpiar DOM
+            const printArea = document.getElementById('printArea');
+            if (printArea) {
+                printArea.innerHTML = '';
             }
-            
+
             // Actualizar el toast para mostrar que se está cancelando
             if (this.progressToastId) {
                 toast.update(this.progressToastId, 'Cancelando generación...', 'Procesando cancelación');
+
+                // Cerrar toast después de un momento
+                setManagedTimeout(() => {
+                    if (this.progressToastId) {
+                        toast.hide(this.progressToastId);
+                        this.progressToastId = null;
+                    }
+                }, 1000);
             }
+
+            // Forzar cleanup
+            this.cleanup();
+        }
+    }
+
+    /**
+     * Actualiza el progreso de la generación
+     * @param {number} progress - Porcentaje de progreso (0-100)
+     * @param {string} message - Mensaje descriptivo del progreso
+     */
+    updateProgress(progress, message) {
+        if (this.progressToastId) {
+            toast.update(this.progressToastId, message, `Progreso: ${progress.toFixed(0)}%`);
         }
     }
 
@@ -329,10 +373,6 @@ class PDFGenerator {
      * Limpieza de memoria
      */
     cleanup() {
-        // Limpiar referencias
-        this.progressCallback = null;
-        this.cancelCallback = null;
-        
         // Forzar recolección de basura si está disponible
         if (window.gc) {
             window.gc();
@@ -361,10 +401,17 @@ class PDFGenerator {
      * Obtiene el uso de memoria aproximado
      */
     getMemoryUsage() {
-        if (performance.memory) {
+        // performance.memory solo está disponible en Chrome/Edge con flag
+        if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
             return performance.memory.usedJSHeapSize;
         }
-        return 0; // Fallback si no está disponible
+
+        // Fallback: estimar uso basado en número de elementos DOM
+        // Aproximadamente 1KB por elemento (conservador)
+        const domElements = document.querySelectorAll('*').length;
+        const estimatedSize = domElements * 1000;
+
+        return estimatedSize;
     }
 
     /**

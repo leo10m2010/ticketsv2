@@ -3,9 +3,19 @@
 
   <head>
     <meta charset="UTF-8">
-    <title>Generador de Tickets</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://public.codepenassets.com/css/reset-2.0.min.css">
-<link rel="stylesheet" href="./style.css">
+    <title>Generador de Tickets - Eventos</title>
+    <meta name="description" content="Generador de tickets personalizado para eventos con diseño profesional">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Preconnect para mejor rendimiento -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Fuentes combinadas en una sola petición -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Staatliches&family=Nanum+Pen+Script&family=Imperial+Script&family=Style+Script&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://public.codepenassets.com/css/reset-2.0.min.css">
+    <link rel="stylesheet" href="./style.css">
 
   </head>
     
@@ -229,8 +239,11 @@
 		</div>
 		
 		<div class="button-group">
-			<button onclick="printTickets()" class="btn btn-success">
-				<i class="fas fa-print"></i> Imprimir/Descargar PDF
+			<button id="downloadPdfButton" class="btn btn-success">
+				<i class="fas fa-download"></i> Descargar PDF Directamente
+			</button>
+			<button id="printButton" class="btn btn-primary" style="margin-left: 10px;">
+				<i class="fas fa-print"></i> Imprimir (Vista Previa)
 			</button>
 		</div>
 		
@@ -312,6 +325,8 @@
 </div>
 
     <!-- Generador de PDF Optimizado -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="config.js"></script>
     <script src="toast.js"></script>
     <script src="./pdfGenerator.js"></script>
     <script src="./script.js"></script>

@@ -1,5 +1,72 @@
 // Generador de Tickets - Mes Morado
 
+// Variable global para rastrear el procesamiento de imágenes
+let currentImageProcessing = null;
+
+// Set para rastrear timeouts activos
+const activeTimeouts = new Set();
+
+/**
+ * Crea un timeout gestionado que se limpia automáticamente
+ * @param {Function} callback - Función a ejecutar
+ * @param {number} delay - Delay en ms
+ * @returns {number} - ID del timeout
+ */
+function setManagedTimeout(callback, delay) {
+    const timeoutId = setTimeout(() => {
+        activeTimeouts.delete(timeoutId);
+        callback();
+    }, delay);
+    activeTimeouts.add(timeoutId);
+    return timeoutId;
+}
+
+/**
+ * Limpia un timeout gestionado específico
+ * @param {number} timeoutId - ID del timeout a limpiar
+ */
+function clearManagedTimeout(timeoutId) {
+    clearTimeout(timeoutId);
+    activeTimeouts.delete(timeoutId);
+}
+
+/**
+ * Limpia todos los timeouts activos
+ */
+function clearAllTimeouts() {
+    activeTimeouts.forEach(id => clearTimeout(id));
+    activeTimeouts.clear();
+}
+
+/**
+ * Obtiene un elemento del DOM con validación
+ * @param {string} id - ID del elemento
+ * @param {boolean} required - Si es requerido (lanzará error si no existe)
+ * @returns {HTMLElement|null} - Elemento o null si no existe
+ */
+function getElement(id, required = true) {
+    const element = document.getElementById(id);
+    if (!element && required) {
+        const errorMsg = `Error: Elemento requerido '${id}' no encontrado en el DOM`;
+        console.error(errorMsg);
+        toast.error(`Error de configuración: elemento ${id} no encontrado`, 'Error interno');
+        throw new Error(errorMsg);
+    }
+    return element;
+}
+
+// Limpiar timeouts al salir
+window.addEventListener('beforeunload', clearAllTimeouts);
+
+// Manejo de conexión offline/online
+window.addEventListener('online', () => {
+    toast.success('Conexión restaurada', 'Online ✓');
+});
+
+window.addEventListener('offline', () => {
+    toast.warning('Sin conexión a internet. Algunas funciones pueden no estar disponibles (como QR codes externos).', 'Offline ⚠️', 5000);
+});
+
 // Actualizar preview de números cuando cambian los inputs
 document.addEventListener('DOMContentLoaded', function() {
     const startInput = document.getElementById('startNumber');
@@ -9,31 +76,42 @@ document.addEventListener('DOMContentLoaded', function() {
     function updatePreview() {
         const start = parseInt(startInput.value) || 1;
         const end = parseInt(endInput.value) || 1;
-        
-        document.getElementById('previewStart').textContent = String(start).padStart(4, '0');
-        document.getElementById('previewEnd').textContent = String(end).padStart(4, '0');
+
+        const previewStart = getElement('previewStart', false);
+        const previewEnd = getElement('previewEnd', false);
+
+        if (previewStart) {
+            previewStart.textContent = String(start).padStart(4, '0');
+        }
+        if (previewEnd) {
+            previewEnd.textContent = String(end).padStart(4, '0');
+        }
     }
     
     // Función para convertir fecha a texto en español
     function updateDateText() {
         const dateValue = dateInput.value;
         if (!dateValue) return;
-        
+
         const date = new Date(dateValue + 'T00:00:00');
-        
+
         // Días de la semana en español
         const daysOfWeek = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
-        const months = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 
+        const months = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                        'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
-        
+
         const dayOfWeek = daysOfWeek[date.getDay()];
         const day = date.getDate();
         const month = months[date.getMonth()];
         const year = date.getFullYear();
-        
-        document.getElementById('dayOfWeek').value = dayOfWeek;
-        document.getElementById('dateText').value = `${day} DE ${month}`;
-        document.getElementById('year').value = year;
+
+        const dayOfWeekEl = getElement('dayOfWeek', false);
+        const dateTextEl = getElement('dateText', false);
+        const yearEl = getElement('year', false);
+
+        if (dayOfWeekEl) dayOfWeekEl.value = dayOfWeek;
+        if (dateTextEl) dateTextEl.value = `${day} DE ${month}`;
+        if (yearEl) yearEl.value = year;
     }
     
     startInput.addEventListener('input', updatePreview);
@@ -60,33 +138,60 @@ document.addEventListener('DOMContentLoaded', function() {
     setupImageUpload();
     
     // Manejar campo de ubicación combinado
-    const locationFull = document.getElementById('locationFull');
+    const locationFull = getElement('locationFull', false);
     if (locationFull) {
         locationFull.addEventListener('input', function() {
             const fullText = this.value;
+            const location1 = getElement('location1', false);
+            const location2 = getElement('location2', false);
+
             // Poner todo el texto en location1, location2 queda vacío
-            document.getElementById('location1').value = fullText;
-            document.getElementById('location2').value = '';
+            if (location1) location1.value = fullText;
+            if (location2) location2.value = '';
             generateLivePreview();
         });
-        
+
         // Inicializar valores al cargar
-        document.getElementById('location1').value = locationFull.value;
-        document.getElementById('location2').value = '';
+        const location1 = getElement('location1', false);
+        const location2 = getElement('location2', false);
+        if (location1) location1.value = locationFull.value;
+        if (location2) location2.value = '';
+    }
+
+    // Configurar botón de impresión
+    const printButton = document.getElementById('printButton');
+    if (printButton) {
+        printButton.addEventListener('click', printTickets);
+    }
+
+    // Configurar botón de descarga directa de PDF
+    const downloadPdfButton = document.getElementById('downloadPdfButton');
+    if (downloadPdfButton) {
+        downloadPdfButton.addEventListener('click', downloadPdfDirectly);
     }
 });
 
 // Función debounce para evitar demasiadas actualizaciones
 function debounce(func, wait) {
     let timeout;
-    return function executedFunction(...args) {
+    const executedFunction = function(...args) {
         const later = () => {
-            clearTimeout(timeout);
+            timeout = null;
             func(...args);
         };
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+
+    // Agregar método para cancelar manualmente
+    executedFunction.cancel = function() {
+        if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+        }
+    };
+
+    return executedFunction;
 }
 
 // Configurar selectores de color
@@ -95,33 +200,53 @@ function setupColorSelectors() {
     function setupColorSelector(pickerId, hiddenId) {
         const picker = document.getElementById(pickerId);
         if (!picker) return;
-        
+
         // Encontrar el contenedor .color-selector más cercano
         const container = picker.closest('.color-selector');
         if (!container) return;
-        
+
         const colorOptions = container.querySelectorAll('.color-option');
-        
-        // Click en las opciones de color predefinidas
-        colorOptions.forEach(option => {
-            option.addEventListener('click', function() {
+
+        // Usar event delegation para evitar múltiples listeners
+        // Remover listener anterior si existe
+        const oldHandler = container._colorClickHandler;
+        if (oldHandler) {
+            container.removeEventListener('click', oldHandler);
+        }
+
+        // Nuevo handler con event delegation
+        const handleContainerClick = (e) => {
+            const option = e.target.closest('.color-option');
+            if (option) {
                 colorOptions.forEach(opt => opt.classList.remove('selected'));
-                this.classList.add('selected');
-                const color = this.dataset.color;
+                option.classList.add('selected');
+                const color = option.dataset.color;
                 document.getElementById(hiddenId).value = color;
                 picker.value = color;
                 generateLivePreview();
-            });
-        });
-        
+            }
+        };
+
+        // Guardar referencia y agregar listener
+        container._colorClickHandler = handleContainerClick;
+        container.addEventListener('click', handleContainerClick);
+
         // Color personalizado con el picker
-        picker.addEventListener('input', function() {
+        const oldPickerHandler = picker._inputHandler;
+        if (oldPickerHandler) {
+            picker.removeEventListener('input', oldPickerHandler);
+        }
+
+        const handlePickerInput = function() {
             colorOptions.forEach(opt => opt.classList.remove('selected'));
             document.getElementById(hiddenId).value = this.value;
             generateLivePreview();
-        });
+        };
+
+        picker._inputHandler = handlePickerInput;
+        picker.addEventListener('input', handlePickerInput);
     }
-    
+
     // Configurar todos los selectores
     setupColorSelector('dateColorCustom', 'dateColor');
     setupColorSelector('titleColorCustom', 'titleColor');
@@ -134,14 +259,33 @@ function formatTicketNumber(num) {
     return String(num).padStart(4, '0');
 }
 
-// Función para crear un ticket con datos personalizados
+/**
+ * Crea un ticket con datos personalizados y validación
+ * @param {number} ticketNumber - Número del ticket
+ * @param {Object} config - Configuración del ticket
+ * @returns {HTMLElement|null} - Elemento del ticket o null si falla
+ */
 function createTicket(ticketNumber, config) {
+    if (!config) {
+        console.error('Config is required for createTicket');
+        return null;
+    }
+
     const template = document.getElementById('ticketTemplate');
+    if (!template) {
+        console.error('Ticket template not found');
+        return null;
+    }
+
     const ticketClone = template.cloneNode(true);
     ticketClone.style.display = 'block';
     ticketClone.id = '';
-    
+
     const ticket = ticketClone.querySelector('.ticket');
+    if (!ticket) {
+        console.error('Ticket element not found in template');
+        return null;
+    }
     
     // Actualizar imagen de fondo
     const imageDiv = ticket.querySelector('.image');
@@ -230,7 +374,18 @@ function createTicket(ticketNumber, config) {
     // Actualizar tipo de vale
     const timePs = ticket.querySelectorAll('.time p');
     timePs.forEach(p => {
-        p.innerHTML = `VALE POR <span>${config.voucherQuantity}</span> ${config.voucherType}`;
+        // Limpiar contenido previo
+        p.textContent = '';
+
+        // Crear elementos de forma segura para prevenir XSS
+        p.appendChild(document.createTextNode('VALE POR '));
+
+        const span = document.createElement('span');
+        span.textContent = config.voucherQuantity;
+        p.appendChild(span);
+
+        p.appendChild(document.createTextNode(' ' + config.voucherType));
+
         if (config.voucherColor) {
             p.style.color = config.voucherColor;
         }
@@ -262,47 +417,86 @@ function createTicket(ticketNumber, config) {
     return ticket;
 }
 
-// Función para obtener configuración del formulario
+/**
+ * Genera URL de código QR con fallback
+ * @param {string} data - Datos para el QR
+ * @returns {string} - URL del QR code
+ */
+function generateQRCodeUrl(data) {
+    if (!data || data.trim() === '') {
+        // QR placeholder si no hay datos
+        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+UVI8L3RleHQ+PC9zdmc+';
+    }
+
+    // Usar configuración global
+    const config = window.APP_CONFIG || { API: { QR_CODE_BASE: 'https://api.qrserver.com/v1/create-qr-code/', QR_CODE_SIZE: 200 } };
+    return `${config.API.QR_CODE_BASE}?size=${config.API.QR_CODE_SIZE}x${config.API.QR_CODE_SIZE}&data=${encodeURIComponent(data)}`;
+}
+
+/**
+ * Obtiene configuración del formulario con validación
+ * @returns {Object} - Configuración validada
+ */
 function getConfig() {
+    const startNumber = parseInt(document.getElementById('startNumber').value) || 1;
+    const endNumber = parseInt(document.getElementById('endNumber').value) || 50;
+
+    // Validar rangos
+    if (startNumber < 1) {
+        toast.warning('El número inicial debe ser mayor a 0', 'Valor inválido');
+        throw new Error('Número inicial inválido');
+    }
+
+    if (endNumber < startNumber) {
+        toast.warning('El número final debe ser mayor o igual al inicial', 'Rango inválido');
+        throw new Error('Rango de números inválido');
+    }
+
     return {
-        startNumber: parseInt(document.getElementById('startNumber').value) || 1,
-        endNumber: parseInt(document.getElementById('endNumber').value) || 50,
+        startNumber,
+        endNumber,
         ticketsPerPage: parseInt(document.getElementById('ticketsPerPage').value) || 6,
-        dayOfWeek: document.getElementById('dayOfWeek').value,
-        dateText: document.getElementById('dateText').value,
-        year: document.getElementById('year').value,
-        dateColor: document.getElementById('dateColor').value,
-        eventTitle: document.getElementById('eventTitle').value,
-        eventSubtitle: document.getElementById('eventSubtitle').value,
-        titleFont: document.getElementById('titleFont').value,
-        subtitleFont: document.getElementById('subtitleFont').value,
-        titleColor: document.getElementById('titleColor').value,
-        subtitleColor: document.getElementById('subtitleColor').value,
-        brandText: document.getElementById('brandText').value,
-        voucherType: document.getElementById('voucherType').value,
-        voucherQuantity: document.getElementById('voucherQuantity').value,
-        voucherFont: document.getElementById('voucherFont').value,
-        voucherColor: document.getElementById('voucherColor').value,
-        location1: document.getElementById('location1').value,
-        location2: document.getElementById('location2').value,
-        imageUrl: document.getElementById('imageUrl').value,
-        qrLink: document.getElementById('qrLink').value,
-        qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(document.getElementById('qrLink').value)}`,
-        titleSize: document.getElementById('titleSize').value,
-        subtitleSize: document.getElementById('subtitleSize').value
+        dayOfWeek: (document.getElementById('dayOfWeek').value || '').trim(),
+        dateText: (document.getElementById('dateText').value || '').trim(),
+        year: parseInt(document.getElementById('year').value) || new Date().getFullYear(),
+        dateColor: document.getElementById('dateColor').value || '#000000',
+        eventTitle: (document.getElementById('eventTitle').value || '').trim(),
+        eventSubtitle: (document.getElementById('eventSubtitle').value || '').trim(),
+        titleFont: document.getElementById('titleFont').value || 'Poppins',
+        subtitleFont: document.getElementById('subtitleFont').value || 'Poppins',
+        titleColor: document.getElementById('titleColor').value || '#000000',
+        subtitleColor: document.getElementById('subtitleColor').value || '#000000',
+        brandText: (document.getElementById('brandText').value || 'TICKET').trim(),
+        voucherType: (document.getElementById('voucherType').value || '').trim(),
+        voucherQuantity: document.getElementById('voucherQuantity').value || '1',
+        voucherFont: document.getElementById('voucherFont').value || 'Poppins',
+        voucherColor: document.getElementById('voucherColor').value || '#000000',
+        location1: (document.getElementById('location1').value || '').trim(),
+        location2: (document.getElementById('location2').value || '').trim(),
+        imageUrl: document.getElementById('imageUrl').value || '',
+        qrLink: document.getElementById('qrLink').value || '',
+        qrUrl: generateQRCodeUrl(document.getElementById('qrLink').value),
+        titleSize: parseInt(document.getElementById('titleSize').value) || 48,
+        subtitleSize: parseInt(document.getElementById('subtitleSize').value) || 24
     };
 }
 
 // Función para generar vista previa en vivo
 function generateLivePreview() {
     const config = getConfig();
-    const previewContainer = document.getElementById('previewContainer');
-    
+    const previewContainer = getElement('previewContainer', false);
+
+    if (!previewContainer) {
+        console.warn('Preview container no encontrado, saltando preview');
+        return;
+    }
+
     // Limpiar contenedor
     previewContainer.innerHTML = '';
-    
-    // Limitar la vista previa a máximo 10 tickets para no sobrecargar
-    const maxPreview = Math.min(config.endNumber - config.startNumber + 1, 10);
+
+    // Limitar la vista previa usando configuración
+    const appConfig = window.APP_CONFIG || { PREVIEW: { MAX_TICKETS_SHOWN: 10 } };
+    const maxPreview = Math.min(config.endNumber - config.startNumber + 1, appConfig.PREVIEW.MAX_TICKETS_SHOWN);
     
     // Generar tickets de muestra
     for (let i = 0; i < maxPreview; i++) {
@@ -320,7 +514,15 @@ function generateLivePreview() {
         moreInfo.style.color = '#4a437e';
         moreInfo.style.fontSize = '18px';
         moreInfo.style.fontWeight = 'bold';
-        moreInfo.innerHTML = `<i class="fas fa-info-circle"></i> Mostrando 10 de ${config.endNumber - config.startNumber + 1} tickets. Todos se generarán al imprimir.`;
+
+        // Crear contenido de forma segura
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-info-circle';
+        moreInfo.appendChild(icon);
+
+        const totalTickets = config.endNumber - config.startNumber + 1;
+        moreInfo.appendChild(document.createTextNode(` Mostrando 10 de ${totalTickets} tickets. Todos se generarán al imprimir.`));
+
         previewContainer.appendChild(moreInfo);
     }
 }
@@ -332,17 +534,18 @@ function generateLivePreview() {
 async function printTickets() {
     const config = getConfig();
     const totalTickets = config.endNumber - config.startNumber + 1;
-    
+    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_TOTAL: 2000, MASS_GENERATION_THRESHOLD: 500 } };
+
     // Validar límites
-    if (totalTickets > 2000) {
+    if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
         toast.warning(
-            'Por favor, limita la generación a máximo 2000 tickets para mantener el rendimiento óptimo.',
+            `Por favor, limita la generación a máximo ${appConfig.PDF.MAX_TICKETS_TOTAL} tickets para mantener el rendimiento óptimo.`,
             'Demasiados tickets ⚠️'
         );
         return;
     }
-    
-    if (totalTickets > 500) {
+
+    if (totalTickets > appConfig.PDF.MASS_GENERATION_THRESHOLD) {
         // Mostrar toast de confirmación con botones
         const confirmToast = toast.info(
             `Estás a punto de generar ${totalTickets} tickets. Este proceso puede tomar varios segundos.`,
@@ -351,8 +554,8 @@ async function printTickets() {
         );
         
         // Agregar botones de acción al toast
-        setTimeout(() => {
-            const toastElement = document.querySelector(`[data-toast-id="${confirmToast}"]`);
+        setManagedTimeout(() => {
+            const toastElement = document.getElementById(confirmToast);
             if (toastElement) {
                 const actionButtons = document.createElement('div');
                 actionButtons.style.marginTop = '10px';
@@ -367,12 +570,14 @@ async function printTickets() {
                 continueBtn.style.border = 'none';
                 continueBtn.style.borderRadius = '4px';
                 continueBtn.style.cursor = 'pointer';
-                continueBtn.onclick = async () => {
+
+                const handleContinue = async () => {
                     toast.hide(confirmToast);
                     // Continuar con la generación
                     await continueGeneration(config);
                 };
-                
+                continueBtn.addEventListener('click', handleContinue);
+
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = 'Cancelar';
                 cancelBtn.style.padding = '8px 16px';
@@ -381,9 +586,11 @@ async function printTickets() {
                 cancelBtn.style.border = 'none';
                 cancelBtn.style.borderRadius = '4px';
                 cancelBtn.style.cursor = 'pointer';
-                cancelBtn.onclick = () => {
+
+                const handleCancel = () => {
                     toast.hide(confirmToast);
                 };
+                cancelBtn.addEventListener('click', handleCancel);
                 
                 actionButtons.appendChild(continueBtn);
                 actionButtons.appendChild(cancelBtn);
@@ -398,53 +605,16 @@ async function printTickets() {
     await continueGeneration(config);
 }
 
-/**
- * Función de respaldo para compatibilidad con el método original
- * Se mantiene para referencia pero se recomienda usar printTickets()
- */
-function printTicketsLegacy() {
-    const config = getConfig();
-    const printArea = document.getElementById('printArea');
-    
-    // Limpiar área de impresión
-    printArea.innerHTML = '';
-    
-    const totalTickets = config.endNumber - config.startNumber + 1;
-    const ticketsPerPage = config.ticketsPerPage;
-    const totalPages = Math.ceil(totalTickets / ticketsPerPage);
-    
-    let currentTicket = config.startNumber;
-    
-    // Crear páginas
-    for (let page = 0; page < totalPages; page++) {
-        const printPage = document.createElement('div');
-        printPage.className = `print-page tickets-${ticketsPerPage}`;
-        
-        // Agregar tickets a la página
-        const ticketsInThisPage = Math.min(ticketsPerPage, config.endNumber - currentTicket + 1);
-        
-        for (let i = 0; i < ticketsInThisPage; i++) {
-            const ticketWrapper = document.createElement('div');
-            const ticket = createTicket(currentTicket, config);
-            ticketWrapper.appendChild(ticket);
-            printPage.appendChild(ticketWrapper);
-            currentTicket++;
-        }
-        
-        printArea.appendChild(printPage);
-    }
-    
-    // Esperar un momento para que las imágenes se carguen antes de imprimir
-    setTimeout(() => {
-        window.print();
-    }, 500);
-}
-
 // Configurar drag and drop para imagen principal
 function setupImageUpload() {
-    const imageDropZone = document.getElementById('imageDropZone');
-    const imageFileInput = document.getElementById('imageFileInput');
-    const imageUrlInput = document.getElementById('imageUrl');
+    const imageDropZone = getElement('imageDropZone', false);
+    const imageFileInput = getElement('imageFileInput', false);
+    const imageUrlInput = getElement('imageUrl', false);
+
+    if (!imageDropZone || !imageFileInput || !imageUrlInput) {
+        console.warn('Elementos de upload de imagen no encontrados, saltando inicialización');
+        return;
+    }
     
     // Click para abrir selector de archivos
     imageDropZone.addEventListener('click', () => imageFileInput.click());
@@ -475,20 +645,684 @@ function setupImageUpload() {
             handleImageFile(e.dataTransfer.files[0]);
         }
     });
-    
+
+    /**
+     * Crea y muestra un modal moderno para el proceso de compresión de imagen
+     */
+    function createImageProcessingModal(file) {
+        // Crear overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'image-processing-overlay';
+
+        // Crear estructura del modal
+        overlay.innerHTML = `
+            <div class="image-processing-modal">
+                <div class="image-processing-header">
+                    <div class="processing-icon">
+                        <div class="processing-icon-circle">
+                            <i class="fas fa-sync-alt"></i>
+                        </div>
+                    </div>
+                    <h2 class="image-processing-title">Comprimiendo Imagen</h2>
+                    <p class="image-processing-subtitle">Estamos optimizando tu imagen para mejor rendimiento</p>
+                </div>
+
+                <div class="image-preview-thumbnail" style="display: none;">
+                    <img src="" alt="Preview">
+                </div>
+
+                <div class="modern-progress-container">
+                    <span class="progress-percentage">0%</span>
+                    <div class="modern-progress-bar">
+                        <div class="modern-progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-message">Iniciando...</div>
+                </div>
+
+                <div class="processing-details">
+                    <div class="detail-item">
+                        <div class="detail-label">Tamaño Original</div>
+                        <div class="detail-value" data-original-size>${(file.size / 1024 / 1024).toFixed(2)} MB</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Tamaño Comprimido</div>
+                        <div class="detail-value highlight" data-compressed-size>-- MB</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Velocidad</div>
+                        <div class="detail-value" data-speed>-- MB/s</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Tiempo Restante</div>
+                        <div class="detail-value" data-eta>Calculando...</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Crear preview de la imagen
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const thumbnail = overlay.querySelector('.image-preview-thumbnail');
+            const img = thumbnail.querySelector('img');
+            img.src = e.target.result;
+            thumbnail.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+
+        // Variables para tracking
+        const startTime = Date.now();
+        let lastUpdateTime = startTime;
+        let processedBytes = 0;
+
+        return {
+            overlay,
+            updateProgress: (progress, message) => {
+                const progressFill = overlay.querySelector('.modern-progress-fill');
+                const progressPercentage = overlay.querySelector('.progress-percentage');
+                const progressMessage = overlay.querySelector('.progress-message');
+                const speedElement = overlay.querySelector('[data-speed]');
+                const etaElement = overlay.querySelector('[data-eta]');
+
+                progressFill.style.width = progress + '%';
+                progressPercentage.textContent = progress + '%';
+                progressMessage.textContent = message || 'Procesando...';
+
+                // Calcular velocidad y tiempo estimado
+                const now = Date.now();
+                const elapsed = (now - startTime) / 1000; // segundos
+                const currentProcessed = (progress / 100) * file.size;
+                const speed = currentProcessed / elapsed; // bytes/s
+                const remaining = file.size - currentProcessed;
+                const eta = remaining / speed; // segundos
+
+                if (elapsed > 0.5 && progress > 5) {
+                    speedElement.textContent = (speed / 1024 / 1024).toFixed(2) + ' MB/s';
+
+                    if (progress < 95) {
+                        if (eta < 1) {
+                            etaElement.textContent = 'Casi listo...';
+                        } else if (eta < 60) {
+                            etaElement.textContent = Math.ceil(eta) + 's';
+                        } else {
+                            etaElement.textContent = Math.ceil(eta / 60) + 'm ' + Math.ceil(eta % 60) + 's';
+                        }
+                    } else {
+                        etaElement.textContent = 'Finalizando...';
+                    }
+                }
+            },
+            showSuccess: (compressedSize, reduction) => {
+                const iconCircle = overlay.querySelector('.processing-icon-circle');
+                const icon = iconCircle.querySelector('i');
+                const title = overlay.querySelector('.image-processing-title');
+                const subtitle = overlay.querySelector('.image-processing-subtitle');
+                const compressedSizeElement = overlay.querySelector('[data-compressed-size]');
+                const progressMessage = overlay.querySelector('.progress-message');
+
+                // Cambiar a estado de éxito
+                iconCircle.classList.remove('pulse');
+                iconCircle.classList.add('success');
+                icon.className = 'fas fa-check';
+                icon.style.animation = 'none';
+
+                title.textContent = '¡Imagen Optimizada!';
+                subtitle.textContent = `Tu imagen ha sido comprimida exitosamente con ${reduction}% de reducción`;
+
+                compressedSizeElement.textContent = (compressedSize / 1024 / 1024).toFixed(2) + ' MB';
+                compressedSizeElement.classList.add('success');
+
+                progressMessage.textContent = '✓ Completado';
+                progressMessage.style.color = '#27ae60';
+
+                // Mostrar resultado con animación
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'processing-result success';
+                resultDiv.innerHTML = `
+                    <div class="result-message">Compresión exitosa</div>
+                    <div class="result-details">
+                        Ahorro de espacio: ${(file.size - compressedSize) / 1024 / 1024 > 0.1
+                            ? (file.size - compressedSize) / 1024 / 1024 + ' MB'
+                            : (file.size - compressedSize) / 1024 + ' KB'}
+                    </div>
+                `;
+                overlay.querySelector('.modern-progress-container').after(resultDiv);
+
+                // Botón para cerrar
+                setTimeout(() => {
+                    const closeBtn = document.createElement('button');
+                    closeBtn.className = 'close-processing-btn';
+                    closeBtn.textContent = 'Continuar';
+                    closeBtn.onclick = () => overlay.remove();
+                    overlay.querySelector('.image-processing-modal').appendChild(closeBtn);
+                }, 500);
+
+                // Auto-cerrar después de 3 segundos
+                setTimeout(() => overlay.remove(), 3000);
+            },
+            showError: (errorMessage) => {
+                const iconCircle = overlay.querySelector('.processing-icon-circle');
+                const icon = iconCircle.querySelector('i');
+                const title = overlay.querySelector('.image-processing-title');
+                const subtitle = overlay.querySelector('.image-processing-subtitle');
+                const progressMessage = overlay.querySelector('.progress-message');
+
+                iconCircle.classList.add('error');
+                icon.className = 'fas fa-times';
+                icon.style.animation = 'none';
+
+                title.textContent = 'Error al Procesar';
+                subtitle.textContent = errorMessage;
+
+                progressMessage.textContent = '✗ Error';
+                progressMessage.style.color = '#e74c3c';
+
+                // Mostrar error con animación
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'processing-result error';
+                resultDiv.innerHTML = `
+                    <div class="result-message">No se pudo procesar la imagen</div>
+                    <div class="result-details">${errorMessage}</div>
+                `;
+                overlay.querySelector('.modern-progress-container').after(resultDiv);
+
+                // Botón para cerrar
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'close-processing-btn';
+                closeBtn.style.background = '#e74c3c';
+                closeBtn.textContent = 'Cerrar';
+                closeBtn.onclick = () => overlay.remove();
+                overlay.querySelector('.image-processing-modal').appendChild(closeBtn);
+            },
+            remove: () => overlay.remove()
+        };
+    }
+
     // Función para manejar el archivo
-    function handleImageFile(file) {
+    async function handleImageFile(file) {
         if (file && file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                imageUrlInput.value = e.target.result;
+            // Cancelar procesamiento anterior si existe
+            if (currentImageProcessing) {
+                currentImageProcessing.cancelled = true;
+                if (currentImageProcessing.worker) {
+                    currentImageProcessing.worker.terminate();
+                }
+                if (currentImageProcessing.workerURL) {
+                    URL.revokeObjectURL(currentImageProcessing.workerURL);
+                }
+                if (currentImageProcessing.modal) {
+                    currentImageProcessing.modal.remove();
+                }
+            }
+
+            // Crear token único para este procesamiento
+            const processingToken = { cancelled: false, worker: null, workerURL: null, modal: null };
+            currentImageProcessing = processingToken;
+
+            // Crear modal moderno
+            const modal = createImageProcessingModal(file);
+            processingToken.modal = modal;
+
+            try {
+                const appConfig = window.APP_CONFIG || { IMAGE: { MAX_WIDTH: 1200, COMPRESSION_QUALITY: 0.85 } };
+
+                // Detectar si es una imagen muy grande
+                const isLargeImage = file.size > 3 * 1024 * 1024; // > 3MB
+
+                let compressedDataUrl;
+
+                if (isLargeImage && typeof Worker !== 'undefined') {
+                    // Usar Web Worker para imágenes grandes
+                    compressedDataUrl = await compressImageWithWorker(
+                        file,
+                        appConfig.IMAGE.MAX_WIDTH,
+                        appConfig.IMAGE.COMPRESSION_QUALITY,
+                        processingToken,
+                        (progress, message) => {
+                            modal.updateProgress(progress, message);
+                        }
+                    );
+                } else {
+                    // Usar método estándar para imágenes pequeñas
+                    compressedDataUrl = await compressImage(
+                        file,
+                        appConfig.IMAGE.MAX_WIDTH,
+                        appConfig.IMAGE.COMPRESSION_QUALITY,
+                        (progress) => {
+                            modal.updateProgress(progress, 'Procesando imagen...');
+                        }
+                    );
+                }
+
+                // Verificar si este procesamiento fue cancelado
+                if (processingToken.cancelled) {
+                    console.log('Procesamiento de imagen cancelado (nueva imagen cargada)');
+                    return;
+                }
+
+                // Calcular tamaños y reducción
+                const compressedSize = compressedDataUrl.length * 0.75; // data URL base64 overhead
+                const reduction = ((1 - compressedSize / file.size) * 100).toFixed(1);
+
+                // Mostrar éxito en el modal
+                modal.showSuccess(compressedSize, reduction);
+
+                // Actualizar el sistema
+                imageUrlInput.value = compressedDataUrl;
                 imageDropZone.classList.add('has-image');
-                imageDropZone.querySelector('p').textContent = '✓ Imagen cargada';
-                generateLivePreview();
-            };
-            reader.readAsDataURL(file);
+                imageDropZone.querySelector('p').textContent =
+                    `✓ Imagen optimizada (${reduction}% de reducción)`;
+
+                // Usar debounce para preview
+                const debouncedPreview = debounce(generateLivePreview, 300);
+                debouncedPreview();
+
+            } catch (error) {
+                // Verificar si fue cancelado antes de mostrar error
+                if (processingToken.cancelled) {
+                    return;
+                }
+
+                modal.showError(error.message);
+                imageDropZone.querySelector('p').textContent = '✗ Error al cargar imagen';
+
+            } finally {
+                // Limpiar solo si es el procesamiento actual
+                if (currentImageProcessing === processingToken) {
+                    currentImageProcessing = null;
+                }
+            }
         }
     }
+}
+
+/**
+ * Crea un Web Worker inline desde código JavaScript
+ * Esto permite que funcione en file:// sin necesidad de servidor
+ */
+function createImageWorkerBlob() {
+    const workerCode = `
+self.onmessage = async function(e) {
+    const { imageData, maxWidth, quality, fileType } = e.data;
+
+    try {
+        const img = await loadImage(imageData);
+        let width = img.width;
+        let height = img.height;
+
+        self.postMessage({
+            type: 'info',
+            originalWidth: width,
+            originalHeight: height
+        });
+
+        if (width > 3000 || height > 3000) {
+            self.postMessage({ type: 'progress', progress: 10, message: 'Imagen muy grande detectada...' });
+
+            const intermediateWidth = width * 0.5;
+            const intermediateHeight = height * 0.5;
+            const step1Canvas = createCanvas(intermediateWidth, intermediateHeight);
+            const step1Ctx = step1Canvas.getContext('2d');
+            step1Ctx.drawImage(img, 0, 0, intermediateWidth, intermediateHeight);
+
+            self.postMessage({ type: 'progress', progress: 40, message: 'Reduciendo tamaño inicial...' });
+
+            width = intermediateWidth;
+            height = intermediateHeight;
+
+            if (width > maxWidth) {
+                height = (height * maxWidth) / width;
+                width = maxWidth;
+            }
+
+            const finalCanvas = createCanvas(width, height);
+            const finalCtx = finalCanvas.getContext('2d');
+
+            if (fileType === 'image/png') {
+                finalCtx.clearRect(0, 0, width, height);
+            }
+
+            finalCtx.drawImage(step1Canvas, 0, 0, width, height);
+            self.postMessage({ type: 'progress', progress: 70, message: 'Aplicando compresión...' });
+
+            const outputType = getSupportedType(fileType);
+            const blob = await canvasToBlob(finalCanvas, outputType, quality);
+            self.postMessage({ type: 'progress', progress: 90, message: 'Finalizando...' });
+
+            const dataUrl = await blobToDataURL(blob);
+
+            self.postMessage({
+                type: 'success',
+                result: dataUrl,
+                originalSize: imageData.length,
+                compressedSize: dataUrl.length
+            });
+
+        } else {
+            self.postMessage({ type: 'progress', progress: 30, message: 'Procesando imagen...' });
+
+            if (width > maxWidth) {
+                height = (height * maxWidth) / width;
+                width = maxWidth;
+            }
+
+            const canvas = createCanvas(width, height);
+            const ctx = canvas.getContext('2d');
+
+            if (fileType === 'image/png') {
+                ctx.clearRect(0, 0, width, height);
+            }
+
+            ctx.drawImage(img, 0, 0, width, height);
+            self.postMessage({ type: 'progress', progress: 60, message: 'Comprimiendo...' });
+
+            const outputType = getSupportedType(fileType);
+            const blob = await canvasToBlob(canvas, outputType, quality);
+            const dataUrl = await blobToDataURL(blob);
+
+            self.postMessage({
+                type: 'success',
+                result: dataUrl,
+                originalSize: imageData.length,
+                compressedSize: dataUrl.length
+            });
+        }
+
+    } catch (error) {
+        self.postMessage({
+            type: 'error',
+            error: error.message
+        });
+    }
+};
+
+async function loadImage(dataUrl) {
+    try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const bitmap = await createImageBitmap(blob);
+        return bitmap;
+    } catch (error) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+            img.src = dataUrl;
+        });
+    }
+}
+
+function createCanvas(width, height) {
+    return new OffscreenCanvas(width, height);
+}
+
+async function canvasToBlob(canvas, type, quality) {
+    return await canvas.convertToBlob({ type: type, quality: quality });
+}
+
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Error al convertir blob'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+function getSupportedType(fileType) {
+    const supportedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    return supportedTypes.includes(fileType) ? fileType : 'image/jpeg';
+}
+    `;
+
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    return URL.createObjectURL(blob);
+}
+
+/**
+ * Comprime una imagen usando Web Worker (para imágenes grandes)
+ * @param {File} file - Archivo de imagen
+ * @param {number} maxWidth - Ancho máximo en píxeles
+ * @param {number} quality - Calidad de compresión (0-1)
+ * @param {Object} processingToken - Token para cancelación
+ * @param {Function} onProgress - Callback de progreso
+ * @returns {Promise<string>} - Data URL de la imagen comprimida
+ */
+function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processingToken, onProgress) {
+    return new Promise((resolve, reject) => {
+        const appConfig = window.APP_CONFIG || { IMAGE: { MAX_FILE_SIZE: 10 * 1024 * 1024 } };
+
+        // Validar tamaño máximo
+        if (file.size > appConfig.IMAGE.MAX_FILE_SIZE) {
+            const sizeMB = (appConfig.IMAGE.MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+            reject(new Error(`La imagen es demasiado grande (máximo ${sizeMB}MB)`));
+            return;
+        }
+
+        // Crear Web Worker inline (funciona en file://)
+        const workerURL = createImageWorkerBlob();
+        const worker = new Worker(workerURL);
+        processingToken.worker = worker;
+        processingToken.workerURL = workerURL;
+
+        // Leer archivo
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+            if (processingToken.cancelled) {
+                worker.terminate();
+                URL.revokeObjectURL(workerURL);
+                reject(new Error('Cancelado'));
+                return;
+            }
+
+            // Enviar imagen al worker
+            worker.postMessage({
+                imageData: e.target.result,
+                maxWidth: maxWidth,
+                quality: quality,
+                fileType: file.type
+            });
+        };
+
+        reader.onerror = function() {
+            worker.terminate();
+            URL.revokeObjectURL(workerURL);
+            reject(new Error('No se pudo leer el archivo'));
+        };
+
+        // Escuchar mensajes del worker
+        worker.onmessage = function(e) {
+            const { type, progress, message, result, error } = e.data;
+
+            if (processingToken.cancelled) {
+                worker.terminate();
+                URL.revokeObjectURL(workerURL);
+                reject(new Error('Cancelado'));
+                return;
+            }
+
+            switch (type) {
+                case 'progress':
+                    if (onProgress) {
+                        onProgress(progress, message || '');
+                    }
+                    break;
+
+                case 'info':
+                    console.log('Imagen original:', e.data.originalWidth, 'x', e.data.originalHeight);
+                    break;
+
+                case 'success':
+                    worker.terminate();
+                    URL.revokeObjectURL(workerURL);
+                    processingToken.worker = null;
+
+                    // Calcular estadísticas
+                    const reduction = ((1 - e.data.compressedSize / e.data.originalSize) * 100).toFixed(1);
+                    console.log(`Worker: Imagen comprimida ${reduction}% de reducción`);
+
+                    resolve(result);
+                    break;
+
+                case 'error':
+                    worker.terminate();
+                    URL.revokeObjectURL(workerURL);
+                    processingToken.worker = null;
+                    reject(new Error(error));
+                    break;
+            }
+        };
+
+        worker.onerror = function(error) {
+            worker.terminate();
+            URL.revokeObjectURL(workerURL);
+            processingToken.worker = null;
+            reject(new Error('Error en el procesamiento: ' + error.message));
+        };
+
+        // Iniciar lectura
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Comprime una imagen para optimizar rendimiento (método estándar)
+ * @param {File} file - Archivo de imagen
+ * @param {number} maxWidth - Ancho máximo en píxeles
+ * @param {number} quality - Calidad de compresión (0-1)
+ * @param {Function} onProgress - Callback de progreso opcional
+ * @returns {Promise<string>} - Data URL de la imagen comprimida
+ */
+function compressImage(file, maxWidth = 1200, quality = 0.85, onProgress = null) {
+    return new Promise((resolve, reject) => {
+        // Usar configuración global
+        const appConfig = window.APP_CONFIG || { IMAGE: { MAX_FILE_SIZE: 10 * 1024 * 1024, PROCESSING_TIMEOUT: 30000 } };
+
+        // Validar tamaño máximo del archivo
+        if (file.size > appConfig.IMAGE.MAX_FILE_SIZE) {
+            const sizeMB = (appConfig.IMAGE.MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+            reject(new Error(`La imagen es demasiado grande (máximo ${sizeMB}MB)`));
+            return;
+        }
+
+        const reader = new FileReader();
+        const fileType = file.type; // Guardar tipo original
+        let img = null;
+        let canvas = null;
+        let timeoutId = null;
+
+        // Función de limpieza de memoria
+        const cleanup = () => {
+            // Limpiar timeout
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+
+            // Limpiar canvas
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+                canvas.width = 0;
+                canvas.height = 0;
+                canvas = null;
+            }
+
+            // Limpiar imagen
+            if (img) {
+                img.onload = null;
+                img.onerror = null;
+                img.src = '';
+                img = null;
+            }
+
+            // Limpiar reader
+            reader.onload = null;
+            reader.onerror = null;
+        };
+
+        // Timeout usando configuración
+        timeoutId = setTimeout(() => {
+            cleanup();
+            const timeoutSec = (appConfig.IMAGE.PROCESSING_TIMEOUT / 1000).toFixed(0);
+            reject(new Error(`Timeout al procesar la imagen (${timeoutSec}s)`));
+        }, appConfig.IMAGE.PROCESSING_TIMEOUT);
+
+        reader.onload = function(e) {
+            if (onProgress) onProgress(20);
+
+            img = new Image();
+
+            img.onload = function() {
+                try {
+                    if (onProgress) onProgress(40);
+
+                    // Crear canvas para redimensionar
+                    canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    // Calcular nuevas dimensiones manteniendo aspect ratio
+                    if (width > maxWidth) {
+                        height = (height * maxWidth) / width;
+                        width = maxWidth;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    if (onProgress) onProgress(60);
+
+                    // Dibujar imagen redimensionada
+                    const ctx = canvas.getContext('2d');
+
+                    // Para PNG con transparencia, limpiar canvas primero
+                    if (fileType === 'image/png') {
+                        ctx.clearRect(0, 0, width, height);
+                    }
+
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    if (onProgress) onProgress(80);
+
+                    // Usar tipo original si es soportado, sino JPEG como fallback
+                    const supportedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+                    const outputType = supportedTypes.includes(fileType) ? fileType : 'image/jpeg';
+
+                    // Convertir a data URL con compresión
+                    const compressedDataUrl = canvas.toDataURL(outputType, quality);
+
+                    if (onProgress) onProgress(100);
+
+                    // Limpiar recursos antes de resolver
+                    cleanup();
+                    resolve(compressedDataUrl);
+                } catch (error) {
+                    cleanup();
+                    reject(new Error('Error al comprimir la imagen: ' + error.message));
+                }
+            };
+
+            img.onerror = function() {
+                cleanup();
+                reject(new Error('No se pudo cargar la imagen'));
+            };
+
+            img.src = e.target.result;
+        };
+
+        reader.onerror = function() {
+            cleanup();
+            reject(new Error('No se pudo leer el archivo'));
+        };
+
+        reader.readAsDataURL(file);
+    });
 }
 
 /**
@@ -499,11 +1333,138 @@ async function continueGeneration(config) {
         // Usar el generador optimizado
         await window.pdfGenerator.generatePDF(config);
     } catch (error) {
-        console.error('Error al generar PDF:', error);
+        // Error ya manejado por el generador de PDF
         toast.error(
             'Error al generar el PDF: ' + error.message,
             'Error en la generación ❌'
         );
+    }
+}
+
+/**
+ * Descarga PDF directamente sin abrir ventana de impresión
+ * Usa html2pdf.js para generar el archivo PDF
+ */
+async function downloadPdfDirectly() {
+    const config = getConfig();
+    const totalTickets = config.endNumber - config.startNumber + 1;
+    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_DIRECT: 500 } };
+
+    // Validar límites
+    if (totalTickets > appConfig.PDF.MAX_TICKETS_DIRECT) {
+        toast.warning(
+            `Para descargas directas, se recomienda un máximo de ${appConfig.PDF.MAX_TICKETS_DIRECT} tickets. Para más tickets, usa la opción "Imprimir".`,
+            'Demasiados tickets ⚠️'
+        );
+        return;
+    }
+
+    // Mostrar toast de progreso
+    const progressToast = toast.progress('Generando PDF para descarga...', 'Preparando tickets');
+
+    try {
+        const printArea = getElement('printArea');
+        printArea.innerHTML = '';
+
+        const ticketsPerPage = config.ticketsPerPage;
+        const totalPages = Math.ceil(totalTickets / ticketsPerPage);
+
+        let currentTicket = config.startNumber;
+
+        // Crear páginas
+        for (let page = 0; page < totalPages; page++) {
+            const printPage = document.createElement('div');
+            printPage.className = `print-page tickets-${ticketsPerPage}`;
+
+            const ticketsInThisPage = Math.min(ticketsPerPage, config.endNumber - currentTicket + 1);
+
+            for (let i = 0; i < ticketsInThisPage; i++) {
+                const ticketWrapper = document.createElement('div');
+                const ticket = createTicket(currentTicket, config);
+                ticketWrapper.appendChild(ticket);
+                printPage.appendChild(ticketWrapper);
+                currentTicket++;
+            }
+
+            printArea.appendChild(printPage);
+
+            // Actualizar progreso
+            const progress = ((page + 1) / totalPages) * 50; // 50% para generación
+            toast.update(progressToast, `Generando tickets ${page + 1}/${totalPages}...`, `Progreso: ${progress.toFixed(0)}%`);
+
+            // Pausa para no bloquear UI
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+
+        // Esperar a que las imágenes se carguen
+        toast.update(progressToast, 'Cargando imágenes...', 'Progreso: 60%');
+        const images = document.querySelectorAll('#printArea img');
+        await Promise.all(Array.from(images).map(img => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+                img.addEventListener('load', resolve);
+                img.addEventListener('error', resolve); // Continuar aunque falle
+            });
+        }));
+
+        // Configurar opciones de html2pdf
+        toast.update(progressToast, 'Generando archivo PDF...', 'Progreso: 75%');
+
+        // Validar que html2pdf esté disponible
+        if (typeof html2pdf === 'undefined') {
+            throw new Error('La librería PDF no se cargó correctamente. Por favor, recarga la página e intenta de nuevo.');
+        }
+
+        const opt = {
+            margin: 0,
+            filename: `tickets_${config.startNumber}-${config.endNumber}.pdf`,
+            image: { type: 'jpeg', quality: 0.95 },
+            html2canvas: {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF: {
+                unit: 'mm',
+                format: 'a4',
+                orientation: 'portrait'
+            },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        // Generar y descargar PDF
+        await html2pdf().set(opt).from(printArea).save();
+
+        toast.complete(progressToast, `PDF descargado exitosamente con ${totalTickets} tickets`, 'success', 3000);
+
+        // Limpiar área de impresión
+        printArea.innerHTML = '';
+
+    } catch (error) {
+        toast.hide(progressToast);
+        toast.error(
+            'Error al generar el PDF: ' + error.message + '. Intenta con menos tickets o usa la opción "Imprimir".',
+            'Error en la descarga ❌'
+        );
+
+        // Cleanup exhaustivo después de error
+        printArea.innerHTML = '';
+
+        // Limpiar canvas huérfanos que pudo crear html2pdf
+        document.querySelectorAll('canvas').forEach(canvas => {
+            if (!canvas.closest('#printArea') && !canvas.closest('.ticket')) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+                canvas.width = 0;
+                canvas.height = 0;
+                if (canvas.parentNode) {
+                    canvas.parentNode.removeChild(canvas);
+                }
+            }
+        });
     }
 }
 
