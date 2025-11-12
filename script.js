@@ -325,8 +325,42 @@ function generateLivePreview() {
     }
 }
 
-// Función para imprimir/descargar tickets
-function printTickets() {
+/**
+ * Genera PDF optimizado con soporte para grandes volúmenes
+ * Utiliza el generador optimizado para mejor rendimiento
+ */
+async function printTickets() {
+    const config = getConfig();
+    const totalTickets = config.endNumber - config.startNumber + 1;
+    
+    // Validar límites
+    if (totalTickets > 2000) {
+        alert('⚠️ Por favor, limita la generación a máximo 2000 tickets para mantener el rendimiento óptimo.');
+        return;
+    }
+    
+    if (totalTickets > 500) {
+        const confirmLarge = confirm(`🚨 Estás a punto de generar ${totalTickets} tickets.\n\n` +
+            'Este proceso puede tomar varios segundos.\n' +
+            '¿Deseas continuar con la generación optimizada?');
+        
+        if (!confirmLarge) return;
+    }
+    
+    try {
+        // Usar el generador optimizado
+        await window.pdfGenerator.generatePDF(config);
+    } catch (error) {
+        console.error('Error al generar PDF:', error);
+        alert('❌ Error al generar el PDF: ' + error.message);
+    }
+}
+
+/**
+ * Función de respaldo para compatibilidad con el método original
+ * Se mantiene para referencia pero se recomienda usar printTickets()
+ */
+function printTicketsLegacy() {
     const config = getConfig();
     const printArea = document.getElementById('printArea');
     

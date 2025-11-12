@@ -862,11 +862,114 @@ html {
 	height: 100%;
 }
 
-/* Responsive Design */
-@media (max-width: 1200px) {
-	.config-grid {
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+/* Estilos para el diálogo de progreso */
+#pdfProgressDialog {
+	font-family: "Poppins", sans-serif;
+}
+
+#pdfProgressDialog h3 {
+	font-family: "Poppins", sans-serif;
+	font-weight: 600;
+}
+
+#pdfProgressDialog p {
+	font-family: "Poppins", sans-serif;
+}
+
+#pdfProgressDialog button {
+	font-family: "Poppins", sans-serif;
+	font-weight: 500;
+	transition: all 0.3s ease;
+}
+
+#pdfProgressDialog button:hover {
+	background: #c0392b !important;
+	transform: translateY(-1px);
+}
+
+/* Animación de progreso */
+#pdfProgressBar {
+	transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Optimización de impresión para lotes grandes */
+@media print {
+	/* Reducir calidad de impresión para mejorar rendimiento */
+	.print-page.tickets-6 .ticket {
+		transform: scale(0.65);
+		image-rendering: -webkit-optimize-contrast;
+		image-rendering: crisp-edges;
 	}
+	
+	.print-page.tickets-8 .ticket {
+		transform: scale(0.53);
+		image-rendering: -webkit-optimize-contrast;
+		image-rendering: crisp-edges;
+	}
+	
+	/* Optimizar sombras y efectos visuales */
+	.print-page .ticket {
+		box-shadow: 0 1px 3px rgba(0,0,0,0.12) !important;
+		filter: none !important;
+	}
+	
+	.print-page .ticket .image {
+		opacity: 0.8 !important;
+	}
+}
+
+/* Animaciones de carga */
+@keyframes pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.7;
+	}
+}
+
+.loading {
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Responsive mejorado para el diálogo de progreso */
+@media (max-width: 768px) {
+	#pdfProgressDialog > div {
+		margin: 20px;
+		min-width: auto;
+		width: calc(100% - 40px);
+		max-width: 400px;
+	}
+	
+	#pdfProgressDialog h3 {
+		font-size: 18px;
+	}
+	
+	#pdfProgressDialog p {
+		font-size: 14px;
+	}
+}
+
+/* Mejoras de accesibilidad */
+#pdfProgressDialog button:focus {
+	outline: 2px solid #fff;
+	outline-offset: 2px;
+}
+
+/* Transiciones suaves para mensajes de éxito/cancelación */
+@keyframes slideInRight {
+	from {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+div[style*="#27ae60"], div[style*="#f39c12"] {
+	animation: slideInRight 0.3s ease-out;
 }
 
 @media (max-width: 768px) {
