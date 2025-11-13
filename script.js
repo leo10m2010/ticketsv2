@@ -534,7 +534,7 @@ function generateLivePreview() {
 async function printTickets() {
     const config = getConfig();
     const totalTickets = config.endNumber - config.startNumber + 1;
-    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_TOTAL: 2000, MASS_GENERATION_THRESHOLD: 500 } };
+    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_TOTAL: 10000, MASS_GENERATION_THRESHOLD: 500 } };
 
     // Validar límites
     if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
@@ -1341,130 +1341,482 @@ async function continueGeneration(config) {
     }
 }
 
+// Caché para imágenes ya convertidas (evita reconversiones)
+const imageConversionCache = new Map();
+const MAX_CACHE_SIZE = 20; // Máximo 20 imágenes en caché
+
 /**
- * Descarga PDF directamente sin abrir ventana de impresión
- * Usa html2pdf.js para generar el archivo PDF
+ * Limpia el caché de imágenes si excede el tamaño máximo
+ */
+function cleanImageCache() {
+    if (imageConversionCache.size > MAX_CACHE_SIZE) {
+        // Eliminar las primeras entradas (FIFO)
+        const entriesToDelete = imageConversionCache.size - MAX_CACHE_SIZE;
+        const keys = Array.from(imageConversionCache.keys());
+        for (let i = 0; i < entriesToDelete; i++) {
+            imageConversionCache.delete(keys[i]);
+        }
+        console.log(`Caché limpiado: ${entriesToDelete} imágenes eliminadas`);
+    }
+}
+
+/**
+ * Convierte una URL de imagen a base64 usando proxy CORS
+ * @param {string} url - URL de la imagen
+ * @returns {Promise<string>} - Data URL en base64
+ */
+async function imageUrlToBase64(url) {
+    if (!url || url.startsWith('data:')) {
+        return url; // Ya es base64
+    }
+
+    // Verificar caché primero
+    if (imageConversionCache.has(url)) {
+        console.log('Usando imagen cacheada:', url.substring(0, 50) + '...');
+        return imageConversionCache.get(url);
+    }
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        let timeoutId = null;
+        let resolved = false;
+
+        const resolveOnce = (result) => {
+            if (!resolved) {
+                resolved = true;
+                if (timeoutId) clearTimeout(timeoutId);
+
+                // Cachear resultado si es diferente de la URL original
+                if (result !== url && result.startsWith('data:')) {
+                    imageConversionCache.set(url, result);
+                    cleanImageCache(); // Limpiar caché si es necesario
+                }
+
+                resolve(result);
+            }
+        };
+
+        img.onload = function() {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const dataURL = canvas.toDataURL('image/jpeg', 0.9);
+
+                // Limpiar canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                canvas.width = 0;
+                canvas.height = 0;
+
+                resolveOnce(dataURL);
+            } catch (error) {
+                console.error('Error al convertir imagen:', error);
+                resolveOnce(url);
+            }
+        };
+
+        img.onerror = function() {
+            console.warn('No se pudo cargar imagen:', url);
+            resolveOnce(url);
+        };
+
+        // Usar proxy CORS solo para URLs externas
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+        img.src = proxyUrl;
+
+        // Timeout optimizado de 8 segundos
+        timeoutId = setTimeout(() => {
+            console.warn('Timeout al convertir imagen:', url);
+            resolveOnce(url);
+        }, 8000);
+    });
+}
+
+/**
+ * Descarga múltiples PDFs automáticamente dividiendo en lotes
+ * Para grandes volúmenes (>200 tickets)
+ */
+async function downloadPdfInBatches() {
+    const config = getConfig();
+    const totalTickets = config.endNumber - config.startNumber + 1;
+    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_PER_PDF: 200, MAX_TICKETS_TOTAL: 10000 } };
+
+    if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
+        toast.error(
+            `El máximo es ${appConfig.PDF.MAX_TICKETS_TOTAL} tickets. Por favor reduce la cantidad.`,
+            'Demasiados tickets ❌'
+        );
+        return;
+    }
+
+    const ticketsPerPdf = appConfig.PDF.MAX_TICKETS_PER_PDF;
+    const totalPdfs = Math.ceil(totalTickets / ticketsPerPdf);
+
+    // Confirmar con el usuario
+    const confirmToast = toast.info(
+        `Se generarán ${totalPdfs} archivos PDF (${ticketsPerPdf} tickets cada uno aprox.). ¿Continuar?`,
+        '📦 Descarga en lotes',
+        0
+    );
+
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            const toastElement = document.getElementById(confirmToast);
+            if (!toastElement) return;
+
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.cssText = 'margin-top: 12px; display: flex; gap: 10px;';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.textContent = `✓ Generar ${totalPdfs} PDFs`;
+            confirmBtn.style.cssText = 'flex: 1; padding: 8px 16px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '✗ Cancelar';
+            cancelBtn.style.cssText = 'flex: 1; padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
+
+            confirmBtn.onclick = async () => {
+                toast.hide(confirmToast);
+                await generateBatchPdfs(config, totalTickets, ticketsPerPdf);
+                resolve(true);
+            };
+
+            cancelBtn.onclick = () => {
+                toast.hide(confirmToast);
+                resolve(false);
+            };
+
+            buttonContainer.appendChild(confirmBtn);
+            buttonContainer.appendChild(cancelBtn);
+            toastElement.querySelector('.toast-content').appendChild(buttonContainer);
+        }, 100);
+    });
+}
+
+/**
+ * Genera múltiples PDFs en lotes
+ */
+async function generateBatchPdfs(config, totalTickets, ticketsPerPdf) {
+    const totalPdfs = Math.ceil(totalTickets / ticketsPerPdf);
+    const progressToast = toast.progress('Iniciando descarga en lotes...', 'Preparando');
+
+    let currentStart = config.startNumber;
+
+    for (let pdfIndex = 0; pdfIndex < totalPdfs; pdfIndex++) {
+        const currentEnd = Math.min(currentStart + ticketsPerPdf - 1, config.endNumber);
+        const ticketsInThisPdf = currentEnd - currentStart + 1;
+
+        toast.update(
+            progressToast,
+            `Generando PDF ${pdfIndex + 1} de ${totalPdfs}...`,
+            `Tickets ${currentStart}-${currentEnd}`
+        );
+
+        // Crear config temporal para este lote
+        const batchConfig = { ...config, startNumber: currentStart, endNumber: currentEnd };
+
+        try {
+            await downloadSinglePdf(batchConfig, `${pdfIndex + 1}_de_${totalPdfs}`);
+        } catch (error) {
+            console.error(`Error generando PDF ${pdfIndex + 1}:`, error);
+            toast.error(
+                `Error en PDF ${pdfIndex + 1}: ${error.message}`,
+                'Error parcial ⚠️',
+                5000
+            );
+        }
+
+        currentStart = currentEnd + 1;
+
+        // Pausa entre PDFs para no saturar
+        if (pdfIndex < totalPdfs - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    toast.complete(
+        progressToast,
+        `✓ ${totalPdfs} PDFs descargados con ${totalTickets} tickets total`,
+        'success',
+        5000
+    );
+}
+
+/**
+ * Descarga un PDF individual (función auxiliar)
+ */
+async function downloadSinglePdf(config, suffix = '') {
+    return downloadPdfDirectlyCore(config, suffix);
+}
+
+/**
+ * Descarga PDF directamente usando jsPDF + html2canvas
+ * Versión reescrita sin html2pdf.js para evitar problemas de compatibilidad
  */
 async function downloadPdfDirectly() {
     const config = getConfig();
     const totalTickets = config.endNumber - config.startNumber + 1;
-    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_DIRECT: 500 } };
+    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_DIRECT: 100, AUTO_SPLIT_THRESHOLD: 200 } };
 
-    // Validar límites
+    // Si excede el umbral, ofrecer descarga en lotes
+    if (totalTickets > appConfig.PDF.AUTO_SPLIT_THRESHOLD) {
+        toast.info(
+            `Para ${totalTickets} tickets, se recomienda descarga en lotes automática.`,
+            'Usar descarga en lotes? 📦',
+            5000
+        );
+
+        return downloadPdfInBatches();
+    }
+
+    // Validar límites (conservador para descarga directa)
     if (totalTickets > appConfig.PDF.MAX_TICKETS_DIRECT) {
         toast.warning(
-            `Para descargas directas, se recomienda un máximo de ${appConfig.PDF.MAX_TICKETS_DIRECT} tickets. Para más tickets, usa la opción "Imprimir".`,
+            `Para descargas directas, el máximo es ${appConfig.PDF.MAX_TICKETS_DIRECT} tickets. Usa "Imprimir (Vista Previa)" o divide en lotes.`,
             'Demasiados tickets ⚠️'
         );
         return;
     }
 
-    // Mostrar toast de progreso
-    const progressToast = toast.progress('Generando PDF para descarga...', 'Preparando tickets');
+    return downloadPdfDirectlyCore(config);
+}
+
+/**
+ * Función core para generar PDF (usada por descarga normal y en lotes)
+ */
+async function downloadPdfDirectlyCore(config, suffix = '') {
+
+    // Validar que las bibliotecas estén disponibles
+    const jsPDF = window.jspdf?.jsPDF; // jsPDF v2+ se accede así
+    if (!jsPDF || typeof html2canvas === 'undefined') {
+        console.error('Estado de bibliotecas:', {
+            jspdf: window.jspdf,
+            jsPDF: jsPDF,
+            html2canvas: typeof html2canvas
+        });
+        toast.error(
+            'Las bibliotecas PDF no se cargaron correctamente. Por favor, recarga la página.',
+            'Error de bibliotecas ❌'
+        );
+        return;
+    }
+
+    const progressToast = toast.progress('Preparando PDF...', 'Iniciando');
+
+    // Convertir imágenes a base64 primero
+    toast.update(progressToast, 'Convirtiendo imágenes...', 'Progreso: 5%');
+    let imageBase64 = config.imageUrl;
+    let qrBase64 = config.qrUrl;
 
     try {
-        const printArea = getElement('printArea');
-        printArea.innerHTML = '';
+        if (config.imageUrl && !config.imageUrl.startsWith('data:')) {
+            imageBase64 = await imageUrlToBase64(config.imageUrl);
+        }
+    } catch (error) {
+        console.warn('Error al convertir imagen:', error);
+    }
 
+    try {
+        if (config.qrUrl && !config.qrUrl.startsWith('data:')) {
+            qrBase64 = await imageUrlToBase64(config.qrUrl);
+        }
+    } catch (error) {
+        console.warn('Error al convertir QR:', error);
+    }
+
+    const pdfConfig = { ...config, imageUrl: imageBase64, qrUrl: qrBase64 };
+
+    // Crear contenedor temporal VISIBLE para renderizado
+    const tempContainer = document.createElement('div');
+    tempContainer.style.cssText = `
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 210mm;
+        background: white;
+        z-index: 9999;
+    `;
+    document.body.appendChild(tempContainer);
+
+    try {
         const ticketsPerPage = config.ticketsPerPage;
         const totalPages = Math.ceil(totalTickets / ticketsPerPage);
-
         let currentTicket = config.startNumber;
 
-        // Crear páginas
-        for (let page = 0; page < totalPages; page++) {
+        toast.update(progressToast, 'Generando tickets...', 'Progreso: 15%');
+
+        // Crear PDF
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+
+        // Generar cada página del PDF
+        for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+            // Limpiar contenedor
+            tempContainer.innerHTML = '';
+
+            // Crear página con estilos similares al print
             const printPage = document.createElement('div');
-            printPage.className = `print-page tickets-${ticketsPerPage}`;
+            printPage.style.cssText = `
+                width: 210mm;
+                height: 297mm;
+                background: white;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-start;
+                align-items: center;
+                padding: ${ticketsPerPage === 6 ? '2mm 3mm' : '2mm 3mm'};
+                gap: ${ticketsPerPage === 6 ? '1mm' : '0.5mm'};
+                box-sizing: border-box;
+            `;
 
             const ticketsInThisPage = Math.min(ticketsPerPage, config.endNumber - currentTicket + 1);
 
+            // Generar tickets para esta página
             for (let i = 0; i < ticketsInThisPage; i++) {
                 const ticketWrapper = document.createElement('div');
-                const ticket = createTicket(currentTicket, config);
-                ticketWrapper.appendChild(ticket);
-                printPage.appendChild(ticketWrapper);
+                ticketWrapper.style.cssText = `
+                    height: ${ticketsPerPage === 6 ? 'calc((297mm - 4mm - 5mm) / 6)' : 'calc((297mm - 4mm - 3.5mm) / 8)'};
+                    width: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    flex-shrink: 0;
+                `;
+
+                const ticketScaled = document.createElement('div');
+                ticketScaled.style.cssText = `
+                    transform: scale(${ticketsPerPage === 6 ? '0.68' : '0.56'});
+                    transform-origin: center center;
+                `;
+
+                const ticket = createTicket(currentTicket, pdfConfig);
+                if (ticket) {
+                    ticketScaled.appendChild(ticket);
+                    ticketWrapper.appendChild(ticketScaled);
+                    printPage.appendChild(ticketWrapper);
+                }
                 currentTicket++;
             }
 
-            printArea.appendChild(printPage);
+            tempContainer.appendChild(printPage);
 
             // Actualizar progreso
-            const progress = ((page + 1) / totalPages) * 50; // 50% para generación
-            toast.update(progressToast, `Generando tickets ${page + 1}/${totalPages}...`, `Progreso: ${progress.toFixed(0)}%`);
+            const progress = 15 + ((pageIndex + 1) / totalPages) * 40;
+            toast.update(progressToast, `Generando página ${pageIndex + 1}/${totalPages}...`, `Progreso: ${progress.toFixed(0)}%`);
 
-            // Pausa para no bloquear UI
-            await new Promise(resolve => setTimeout(resolve, 10));
-        }
+            // Esperar imágenes de esta página (timeout reducido)
+            const images = tempContainer.querySelectorAll('img');
+            await Promise.all(Array.from(images).map(img => {
+                if (img.complete) return Promise.resolve();
+                return Promise.race([
+                    new Promise(resolve => {
+                        img.onload = img.onerror = resolve;
+                    }),
+                    new Promise(resolve => setTimeout(resolve, 2500)) // Reducido de 3000ms
+                ]);
+            }));
 
-        // Esperar a que las imágenes se carguen
-        toast.update(progressToast, 'Cargando imágenes...', 'Progreso: 60%');
-        const images = document.querySelectorAll('#printArea img');
-        await Promise.all(Array.from(images).map(img => {
-            if (img.complete) return Promise.resolve();
-            return new Promise((resolve) => {
-                img.addEventListener('load', resolve);
-                img.addEventListener('error', resolve); // Continuar aunque falle
-            });
-        }));
+            // Dar tiempo para renderizado (optimizado)
+            await new Promise(resolve => setTimeout(resolve, 200)); // Reducido de 300ms
 
-        // Configurar opciones de html2pdf
-        toast.update(progressToast, 'Generando archivo PDF...', 'Progreso: 75%');
+            // Capturar esta página con html2canvas (optimizado)
+            toast.update(progressToast, `Capturando página ${pageIndex + 1}/${totalPages}...`, `Progreso: ${(55 + (pageIndex / totalPages) * 25).toFixed(0)}%`);
 
-        // Validar que html2pdf esté disponible
-        if (typeof html2pdf === 'undefined') {
-            throw new Error('La librería PDF no se cargó correctamente. Por favor, recarga la página e intenta de nuevo.');
-        }
-
-        const opt = {
-            margin: 0,
-            filename: `tickets_${config.startNumber}-${config.endNumber}.pdf`,
-            image: { type: 'jpeg', quality: 0.95 },
-            html2canvas: {
-                scale: 2,
-                useCORS: true,
+            const canvas = await html2canvas(printPage, {
+                scale: 1.8, // Reducido de 2 (20% más rápido, calidad similar)
+                useCORS: false,
+                allowTaint: true,
                 logging: false,
-                backgroundColor: '#ffffff'
-            },
-            jsPDF: {
-                unit: 'mm',
-                format: 'a4',
-                orientation: 'portrait'
-            },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-        };
+                backgroundColor: '#ffffff',
+                width: printPage.offsetWidth,
+                height: printPage.offsetHeight,
+                removeContainer: false
+            });
 
-        // Generar y descargar PDF
-        await html2pdf().set(opt).from(printArea).save();
+            console.log(`Página ${pageIndex + 1} capturada:`, canvas.width, 'x', canvas.height);
 
-        toast.complete(progressToast, `PDF descargado exitosamente con ${totalTickets} tickets`, 'success', 3000);
+            // Convertir canvas a imagen
+            const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-        // Limpiar área de impresión
-        printArea.innerHTML = '';
+            // Limpiar canvas para liberar memoria
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.width = 0;
+            canvas.height = 0;
+
+            // Agregar página al PDF
+            if (pageIndex > 0) {
+                pdf.addPage();
+            }
+
+            // Ajustar imagen para que encaje en la página A4
+            const imgWidth = pdfWidth;
+            const imgHeight = (canvas.height || 1) * pdfWidth / (canvas.width || 1);
+
+            pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, Math.min(imgHeight, pdfHeight));
+
+            // Pequeña pausa entre páginas (optimizada)
+            await new Promise(resolve => setTimeout(resolve, 50)); // Reducido de 100ms
+        }
+
+        // Descargar PDF
+        toast.update(progressToast, 'Guardando PDF...', 'Progreso: 95%');
+
+        const filename = suffix
+            ? `tickets_${config.startNumber}-${config.endNumber}_parte_${suffix}.pdf`
+            : `tickets_${config.startNumber}-${config.endNumber}.pdf`;
+
+        pdf.save(filename);
+
+        if (!suffix) {
+            // Solo mostrar toast de éxito si no es parte de un lote
+            toast.complete(progressToast, `✓ PDF generado con ${totalTickets} tickets (${totalPages} páginas)`, 'success', 3000);
+        }
 
     } catch (error) {
         toast.hide(progressToast);
+        console.error('Error al generar PDF:', error);
+
         toast.error(
-            'Error al generar el PDF: ' + error.message + '. Intenta con menos tickets o usa la opción "Imprimir".',
-            'Error en la descarga ❌'
+            `Error: ${error.message}. Intenta con menos tickets o usa "Imprimir (Vista Previa)".`,
+            'Error al generar PDF ❌',
+            6000
         );
+    } finally {
+        // Cerrar toast si es parte de un lote
+        if (suffix) {
+            toast.hide(progressToast);
+        }
 
-        // Cleanup exhaustivo después de error
-        printArea.innerHTML = '';
-
-        // Limpiar canvas huérfanos que pudo crear html2pdf
-        document.querySelectorAll('canvas').forEach(canvas => {
-            if (!canvas.closest('#printArea') && !canvas.closest('.ticket')) {
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-                canvas.width = 0;
-                canvas.height = 0;
-                if (canvas.parentNode) {
-                    canvas.parentNode.removeChild(canvas);
-                }
+        // Limpieza mejorada con timeout reducido
+        setTimeout(() => {
+            if (tempContainer && tempContainer.parentNode) {
+                tempContainer.parentNode.removeChild(tempContainer);
             }
-        });
+
+            // Limpiar canvas huérfanos creados por html2canvas
+            document.querySelectorAll('canvas').forEach(canvas => {
+                if (!canvas.closest('.ticket') && !canvas.closest('.preview-container')) {
+                    try {
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        }
+                        canvas.width = 0;
+                        canvas.height = 0;
+                        if (canvas.parentNode) {
+                            canvas.parentNode.removeChild(canvas);
+                        }
+                    } catch (e) {
+                        // Ignorar errores de limpieza
+                    }
+                }
+            });
+        }, 300); // Reducido de 500ms
     }
 }
 

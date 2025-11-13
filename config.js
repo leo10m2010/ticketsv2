@@ -21,9 +21,11 @@ const APP_CONFIG = {
     PDF: {
         BATCH_SIZE: 50,               // Tickets por lote
         MAX_MEMORY_MB: 400,           // Límite de memoria en MB
-        MAX_TICKETS_TOTAL: 2000,      // Máximo tickets totales
-        MAX_TICKETS_DIRECT: 500,      // Máximo para descarga directa
-        MASS_GENERATION_THRESHOLD: 500 // Umbral para confirmación
+        MAX_TICKETS_TOTAL: 10000,     // Máximo tickets totales (aumentado de 2000)
+        MAX_TICKETS_DIRECT: 100,      // Máximo para descarga directa de una vez
+        MAX_TICKETS_PER_PDF: 200,     // Máximo tickets por archivo PDF individual
+        MASS_GENERATION_THRESHOLD: 500, // Umbral para confirmación
+        AUTO_SPLIT_THRESHOLD: 200     // Auto-dividir en múltiples PDFs si excede
     },
 
     // Timeouts y delays
