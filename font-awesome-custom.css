@@ -9,8 +9,8 @@
   font-weight: 400;
   font-display: block;
   src: url("webfonts/fa-solid-900.woff2") format("woff2"),
-       url("webfonts/fa-solid-900.woff") format("woff"),
-       url("webfonts/fa-solid-900.ttf") format("truetype");
+    url("webfonts/fa-solid-900.woff") format("woff"),
+    url("webfonts/fa-solid-900.ttf") format("truetype");
 }
 
 @font-face {
@@ -19,8 +19,8 @@
   font-weight: 900;
   font-display: block;
   src: url("webfonts/fa-solid-900.woff2") format("woff2"),
-       url("webfonts/fa-solid-900.woff") format("woff"),
-       url("webfonts/fa-solid-900.ttf") format("truetype");
+    url("webfonts/fa-solid-900.woff") format("woff"),
+    url("webfonts/fa-solid-900.ttf") format("truetype");
 }
 
 .fa,
@@ -59,11 +59,26 @@
   content: "\f382";
 }
 
+.fa-moon:before {
+  content: "\f186";
+}
+
+.fa-sun:before {
+  content: "\f185";
+}
+
+.fa-download:before {
+  content: "\f019";
+}
+
 .fa-ticket-alt,
 .fa-print,
 .fa-info-circle,
 .fa-eye,
-.fa-cloud-upload-alt {
+.fa-cloud-upload-alt,
+.fa-moon,
+.fa-sun,
+.fa-download {
   font-family: "Font Awesome 5 Free";
   font-weight: 900;
 }

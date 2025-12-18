@@ -2,6 +2,7 @@
 
 // Variable global para rastrear el procesamiento de imágenes
 let currentImageProcessing = null;
+let cachedQRCodeUrl = ''; // Caché para el QR local
 
 // Set para rastrear timeouts activos
 const activeTimeouts = new Set();
@@ -68,11 +69,22 @@ window.addEventListener('offline', () => {
 });
 
 // Actualizar preview de números cuando cambian los inputs
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const startInput = document.getElementById('startNumber');
     const endInput = document.getElementById('endNumber');
     const dateInput = document.getElementById('eventDate');
-    
+
+    // Establecer fecha de hoy (Perú) por defecto
+    if (dateInput) {
+        const peruDate = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Lima',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(new Date());
+        dateInput.value = peruDate;
+    }
+
     function updatePreview() {
         const start = parseInt(startInput.value) || 1;
         const end = parseInt(endInput.value) || 1;
@@ -87,7 +99,7 @@ document.addEventListener('DOMContentLoaded', function() {
             previewEnd.textContent = String(end).padStart(4, '0');
         }
     }
-    
+
     // Función para convertir fecha a texto en español
     function updateDateText() {
         const dateValue = dateInput.value;
@@ -98,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Días de la semana en español
         const daysOfWeek = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
         const months = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-                       'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
         const dayOfWeek = daysOfWeek[date.getDay()];
         const day = date.getDate();
@@ -113,34 +125,73 @@ document.addEventListener('DOMContentLoaded', function() {
         if (dateTextEl) dateTextEl.value = `${day} DE ${month}`;
         if (yearEl) yearEl.value = year;
     }
-    
+
     startInput.addEventListener('input', updatePreview);
     endInput.addEventListener('input', updatePreview);
     dateInput.addEventListener('change', updateDateText);
-    
+
     // Inicializar fecha al cargar
     updateDateText();
-    
-    // Generar vista previa inicial
-    generateLivePreview();
-    
-    // Actualizar vista previa cuando cambian los campos
-    const allInputs = document.querySelectorAll('#dashboard input, #dashboard select');
-    allInputs.forEach(input => {
-        input.addEventListener('input', debounce(generateLivePreview, 500));
-        input.addEventListener('change', generateLivePreview);
+
+    // Cargar datos persistentes
+    loadFormData();
+
+    // Sobreescribir con la fecha de hoy si el usuario así lo desea (configuración "siempre hoy")
+    // Esto asegura que cada vez que abra la app, la fecha sea la actual.
+    if (dateInput) {
+        const todayPeru = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Lima',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(new Date());
+        dateInput.value = todayPeru;
+        updateDateText();
+    }
+
+    // Inicializar QR por primera vez
+    updateLocalQRCode(document.getElementById('qrLink').value, () => {
+        generateLivePreview();
     });
-    
+
+    // Actualizar vista previa cuando cambian los campos
+    const allInputs = document.querySelectorAll('#dashboard input:not(#qrLink), #dashboard select');
+    const saveDebounced = debounce(saveFormData, 1000);
+    const previewDebounced = debounce(generateLivePreview, 500);
+
+    allInputs.forEach(input => {
+        input.addEventListener('input', () => {
+            previewDebounced();
+            saveDebounced();
+        });
+        input.addEventListener('change', () => {
+            generateLivePreview();
+            saveFormData();
+        });
+    });
+
+    // Listener especial para QR (asíncrono)
+    const qrLinkInput = document.getElementById('qrLink');
+    if (qrLinkInput) {
+        qrLinkInput.addEventListener('input', debounce(() => {
+            updateLocalQRCode(qrLinkInput.value, () => {
+                generateLivePreview();
+                saveFormData();
+            });
+        }, 500));
+    }
+
     // Configurar selectores de color
     setupColorSelectors();
-    
+
     // Configurar drag and drop para imagen
     setupImageUpload();
-    
+
+
     // Manejar campo de ubicación combinado
     const locationFull = getElement('locationFull', false);
     if (locationFull) {
-        locationFull.addEventListener('input', function() {
+        locationFull.addEventListener('input', function () {
             const fullText = this.value;
             const location1 = getElement('location1', false);
             const location2 = getElement('location2', false);
@@ -169,12 +220,39 @@ document.addEventListener('DOMContentLoaded', function() {
     if (downloadPdfButton) {
         downloadPdfButton.addEventListener('click', downloadPdfDirectly);
     }
+
+    // Configurar modo oscuro
+    setupTheme();
 });
+
+/**
+ * Configura el sistema de temas (oscuro/claro)
+ */
+function setupTheme() {
+    const themeToggle = document.getElementById('themeToggle');
+    if (!themeToggle) return;
+
+    // Cargar preferencia guardada
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+        themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+    }
+
+    themeToggle.addEventListener('click', () => {
+        const isDark = document.body.classList.toggle('dark-mode');
+        const theme = isDark ? 'dark' : 'light';
+        localStorage.setItem('theme', theme);
+        themeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+
+        toast.info(`Modo ${isDark ? 'oscuro' : 'claro'} activado`, 'Tema cambiado', 2000);
+    });
+}
 
 // Función debounce para evitar demasiadas actualizaciones
 function debounce(func, wait) {
     let timeout;
-    const executedFunction = function(...args) {
+    const executedFunction = function (...args) {
         const later = () => {
             timeout = null;
             func(...args);
@@ -184,7 +262,7 @@ function debounce(func, wait) {
     };
 
     // Agregar método para cancelar manualmente
-    executedFunction.cancel = function() {
+    executedFunction.cancel = function () {
         if (timeout) {
             clearTimeout(timeout);
             timeout = null;
@@ -237,7 +315,7 @@ function setupColorSelectors() {
             picker.removeEventListener('input', oldPickerHandler);
         }
 
-        const handlePickerInput = function() {
+        const handlePickerInput = function () {
             colorOptions.forEach(opt => opt.classList.remove('selected'));
             document.getElementById(hiddenId).value = this.value;
             generateLivePreview();
@@ -286,7 +364,9 @@ function createTicket(ticketNumber, config) {
         console.error('Ticket element not found in template');
         return null;
     }
-    
+
+    // Actualizar imagen de fondo
+
     // Actualizar imagen de fondo
     const imageDiv = ticket.querySelector('.image');
     if (imageDiv && config.imageUrl) {
@@ -295,43 +375,43 @@ function createTicket(ticketNumber, config) {
         imageDiv.style.backgroundPosition = 'center';
         imageDiv.style.backgroundRepeat = 'no-repeat';
     }
-    
+
     // Actualizar textos de marca lateral
     const admitOneSpans = ticket.querySelectorAll('.admit-one span');
     admitOneSpans.forEach(span => {
         span.textContent = config.brandText;
     });
-    
+
     // Actualizar números de ticket (izquierda y derecha)
     // Lado izquierdo - dentro de .left .ticket-number p
     const leftTicketNumber = ticket.querySelector('.left .ticket-number p');
     if (leftTicketNumber) {
         leftTicketNumber.textContent = '#' + formatTicketNumber(ticketNumber);
     }
-    
+
     // Lado derecho - p.ticket-number dentro de .right
     const rightTicketNumber = ticket.querySelector('.right p.ticket-number');
     if (rightTicketNumber) {
         rightTicketNumber.textContent = '#' + formatTicketNumber(ticketNumber);
     }
-    
+
     // Actualizar fecha
     const dateSpans = ticket.querySelectorAll('.date span');
     if (dateSpans.length >= 3) {
         dateSpans[0].textContent = config.dayOfWeek;
         dateSpans[1].textContent = config.dateText;
         dateSpans[2].textContent = config.year;
-        
+
         // Aplicar color a la fecha (especialmente al span del medio)
         if (config.dateColor && dateSpans[1]) {
             dateSpans[1].style.color = config.dateColor;
         }
     }
-    
+
     // Actualizar títulos del evento (izquierda y derecha)
     const leftH1 = ticket.querySelector('.left .show-name h1');
     const rightH1 = ticket.querySelector('.right .show-name h1');
-    
+
     // Título izquierdo (con tamaño personalizable)
     if (leftH1) {
         leftH1.textContent = config.eventTitle;
@@ -341,11 +421,15 @@ function createTicket(ticketNumber, config) {
         if (config.titleColor) {
             leftH1.style.color = config.titleColor;
         }
-        if (config.titleSize) {
-            leftH1.style.fontSize = config.titleSize + 'px';
+
+        // Ajuste automático de fuente para títulos largos
+        let fontSize = config.titleSize || 45;
+        if (config.eventTitle && config.eventTitle.length > 15) {
+            fontSize = Math.max(24, fontSize - (config.eventTitle.length - 15) * 1.2);
         }
+        leftH1.style.fontSize = fontSize + 'px';
     }
-    
+
     // Título derecho (tamaño fijo, solo texto y color)
     if (rightH1) {
         rightH1.textContent = config.eventTitle;
@@ -356,7 +440,7 @@ function createTicket(ticketNumber, config) {
             rightH1.style.color = config.titleColor;
         }
     }
-    
+
     const showNameH2 = ticket.querySelectorAll('.show-name h2');
     showNameH2.forEach(h2 => {
         h2.textContent = config.eventSubtitle;
@@ -370,7 +454,7 @@ function createTicket(ticketNumber, config) {
             h2.style.fontSize = config.subtitleSize + 'px';
         }
     });
-    
+
     // Actualizar tipo de vale
     const timePs = ticket.querySelectorAll('.time p');
     timePs.forEach(p => {
@@ -393,7 +477,7 @@ function createTicket(ticketNumber, config) {
             p.style.fontFamily = `"${config.voucherFont}", sans-serif`;
         }
     });
-    
+
     // Actualizar ubicación
     const locationSpans = ticket.querySelectorAll('.location span');
     if (locationSpans.length >= 3) {
@@ -407,36 +491,56 @@ function createTicket(ticketNumber, config) {
             locationSpans[2].textContent = '';
         }
     }
-    
+
     // Actualizar código QR
     const barcodeImg = ticket.querySelector('.barcode img');
     if (barcodeImg) {
         barcodeImg.src = config.qrUrl;
     }
-    
     return ticket;
 }
 
 /**
- * Genera URL de código QR con fallback
+ * Genera URL de código QR localmente usando la librería QRCode
  * @param {string} data - Datos para el QR
- * @returns {string} - URL del QR code
+ * @param {Function} callback - Callback con la URL generada
  */
-function generateQRCodeUrl(data) {
+function updateLocalQRCode(data, callback) {
     if (!data || data.trim() === '') {
-        // QR placeholder si no hay datos
-        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+UVI8L3RleHQ+PC9zdmc+';
+        cachedQRCodeUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+UVI8L3RleHQ+PC9zdmc+';
+        if (callback) callback(cachedQRCodeUrl);
+        return;
     }
 
-    // Usar configuración global
-    const config = window.APP_CONFIG || { API: { QR_CODE_BASE: 'https://api.qrserver.com/v1/create-qr-code/', QR_CODE_SIZE: 200 } };
-    return `${config.API.QR_CODE_BASE}?size=${config.API.QR_CODE_SIZE}x${config.API.QR_CODE_SIZE}&data=${encodeURIComponent(data)}`;
+    // Crear un contenedor temporal para la librería
+    const tempDiv = document.createElement('div');
+    try {
+        new QRCode(tempDiv, {
+            text: data,
+            width: 200,
+            height: 200,
+            correctLevel: QRCode.CorrectLevel.H
+        });
+
+        // La librería genera un canvas o un img. Esperamos a que esté listo.
+        const checkReady = () => {
+            const img = tempDiv.querySelector('img');
+            if (img && img.src && img.src.startsWith('data:')) {
+                cachedQRCodeUrl = img.src;
+                if (callback) callback(cachedQRCodeUrl);
+            } else {
+                setTimeout(checkReady, 50);
+            }
+        };
+        checkReady();
+    } catch (e) {
+        console.error('Error generando QR local:', e);
+        // Fallback a API externa si falla la librería
+        cachedQRCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
+        if (callback) callback(cachedQRCodeUrl);
+    }
 }
 
-/**
- * Obtiene configuración del formulario con validación
- * @returns {Object} - Configuración validada
- */
 function getConfig() {
     const startNumber = parseInt(document.getElementById('startNumber').value) || 1;
     const endNumber = parseInt(document.getElementById('endNumber').value) || 50;
@@ -475,9 +579,10 @@ function getConfig() {
         location2: (document.getElementById('location2').value || '').trim(),
         imageUrl: document.getElementById('imageUrl').value || '',
         qrLink: document.getElementById('qrLink').value || '',
-        qrUrl: generateQRCodeUrl(document.getElementById('qrLink').value),
+        qrUrl: cachedQRCodeUrl,
         titleSize: parseInt(document.getElementById('titleSize').value) || 48,
-        subtitleSize: parseInt(document.getElementById('subtitleSize').value) || 24
+        subtitleSize: parseInt(document.getElementById('subtitleSize').value) || 24,
+        splitPdf: document.getElementById('splitPdf')?.checked ?? true
     };
 }
 
@@ -491,40 +596,36 @@ function generateLivePreview() {
         return;
     }
 
-    // Limpiar contenedor
+    // Limpiar contenedor y usar DocumentFragment para mejor rendimiento
     previewContainer.innerHTML = '';
+    const fragment = document.createDocumentFragment();
 
     // Limitar la vista previa usando configuración
     const appConfig = window.APP_CONFIG || { PREVIEW: { MAX_TICKETS_SHOWN: 10 } };
     const maxPreview = Math.min(config.endNumber - config.startNumber + 1, appConfig.PREVIEW.MAX_TICKETS_SHOWN);
-    
+
     // Generar tickets de muestra
     for (let i = 0; i < maxPreview; i++) {
         const ticketNumber = config.startNumber + i;
         const ticket = createTicket(ticketNumber, config);
-        previewContainer.appendChild(ticket);
+        if (ticket) fragment.appendChild(ticket);
     }
-    
-    // Si hay más tickets, mostrar mensaje
-    if (config.endNumber - config.startNumber + 1 > 10) {
-        const moreInfo = document.createElement('div');
-        moreInfo.style.gridColumn = '1 / -1';
-        moreInfo.style.textAlign = 'center';
-        moreInfo.style.padding = '20px';
-        moreInfo.style.color = '#4a437e';
-        moreInfo.style.fontSize = '18px';
-        moreInfo.style.fontWeight = 'bold';
 
-        // Crear contenido de forma segura
+    // Si hay más tickets, mostrar mensaje
+    const totalTickets = config.endNumber - config.startNumber + 1;
+    if (totalTickets > appConfig.PREVIEW.MAX_TICKETS_SHOWN) {
+        const moreInfo = document.createElement('div');
+        moreInfo.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 20px; color: #4a437e; font-size: 18px; font-weight: bold;';
+
         const icon = document.createElement('i');
         icon.className = 'fas fa-info-circle';
         moreInfo.appendChild(icon);
 
-        const totalTickets = config.endNumber - config.startNumber + 1;
-        moreInfo.appendChild(document.createTextNode(` Mostrando 10 de ${totalTickets} tickets. Todos se generarán al imprimir.`));
-
-        previewContainer.appendChild(moreInfo);
+        moreInfo.appendChild(document.createTextNode(` Mostrando ${appConfig.PREVIEW.MAX_TICKETS_SHOWN} de ${totalTickets} tickets. Todos se generarán al imprimir.`));
+        fragment.appendChild(moreInfo);
     }
+
+    previewContainer.appendChild(fragment);
 }
 
 /**
@@ -546,14 +647,13 @@ async function printTickets() {
     }
 
     if (totalTickets > appConfig.PDF.MASS_GENERATION_THRESHOLD) {
-        // Mostrar toast de confirmación con botones
+        // Mostrar toast de confirmación
         const confirmToast = toast.info(
-            `Estás a punto de generar ${totalTickets} tickets. Este proceso puede tomar varios segundos.`,
-            '🚨 Generación masiva de tickets',
-            0 // Sin auto-cierre
+            `Estás a punto de generar ${totalTickets} tickets. Este proceso puede tomar unos segundos.`,
+            '🚨 Generación masiva',
+            0
         );
-        
-        // Agregar botones de acción al toast
+
         setManagedTimeout(() => {
             const toastElement = document.getElementById(confirmToast);
             if (toastElement) {
@@ -561,48 +661,33 @@ async function printTickets() {
                 actionButtons.style.marginTop = '10px';
                 actionButtons.style.display = 'flex';
                 actionButtons.style.gap = '10px';
-                
+
                 const continueBtn = document.createElement('button');
                 continueBtn.textContent = 'Continuar';
-                continueBtn.style.padding = '8px 16px';
-                continueBtn.style.backgroundColor = '#4CAF50';
-                continueBtn.style.color = 'white';
-                continueBtn.style.border = 'none';
-                continueBtn.style.borderRadius = '4px';
-                continueBtn.style.cursor = 'pointer';
-
-                const handleContinue = async () => {
-                    toast.hide(confirmToast);
-                    // Continuar con la generación
-                    await continueGeneration(config);
-                };
-                continueBtn.addEventListener('click', handleContinue);
+                continueBtn.className = 'btn-confirm'; // Asumiendo que existe o hereda estilos básicos
+                continueBtn.style.cssText = 'padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;';
 
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = 'Cancelar';
-                cancelBtn.style.padding = '8px 16px';
-                cancelBtn.style.backgroundColor = '#f44336';
-                cancelBtn.style.color = 'white';
-                cancelBtn.style.border = 'none';
-                cancelBtn.style.borderRadius = '4px';
-                cancelBtn.style.cursor = 'pointer';
+                cancelBtn.style.cssText = 'padding: 5px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;';
 
-                const handleCancel = () => {
+                continueBtn.onclick = () => {
                     toast.hide(confirmToast);
+                    window.pdfGenerator.generatePDF(config, 'print');
                 };
-                cancelBtn.addEventListener('click', handleCancel);
-                
+
+                cancelBtn.onclick = () => toast.hide(confirmToast);
+
                 actionButtons.appendChild(continueBtn);
                 actionButtons.appendChild(cancelBtn);
                 toastElement.appendChild(actionButtons);
             }
         }, 100);
-        
-        return; // Salir y esperar la decisión del usuario
+        return;
     }
-    
-    // Si es menos de 500 tickets, continuar directamente
-    await continueGeneration(config);
+
+    // Generación directa
+    window.pdfGenerator.generatePDF(config, 'print');
 }
 
 // Configurar drag and drop para imagen principal
@@ -615,28 +700,28 @@ function setupImageUpload() {
         console.warn('Elementos de upload de imagen no encontrados, saltando inicialización');
         return;
     }
-    
+
     // Click para abrir selector de archivos
     imageDropZone.addEventListener('click', () => imageFileInput.click());
-    
+
     // Cuando se selecciona un archivo
     imageFileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
             handleImageFile(e.target.files[0]);
         }
     });
-    
+
     // Drag over
     imageDropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         imageDropZone.classList.add('drag-over');
     });
-    
+
     // Drag leave
     imageDropZone.addEventListener('dragleave', () => {
         imageDropZone.classList.remove('drag-over');
     });
-    
+
     // Drop
     imageDropZone.addEventListener('drop', (e) => {
         e.preventDefault();
@@ -673,9 +758,7 @@ function setupImageUpload() {
 
                 <div class="modern-progress-container">
                     <span class="progress-percentage">0%</span>
-                    <div class="modern-progress-bar">
-                        <div class="modern-progress-fill" style="width: 0%"></div>
-                    </div>
+                    <div class="modern-progress-fill" style="width: 0%"></div>
                     <div class="progress-message">Iniciando...</div>
                 </div>
 
@@ -784,8 +867,8 @@ function setupImageUpload() {
                     <div class="result-message">Compresión exitosa</div>
                     <div class="result-details">
                         Ahorro de espacio: ${(file.size - compressedSize) / 1024 / 1024 > 0.1
-                            ? (file.size - compressedSize) / 1024 / 1024 + ' MB'
-                            : (file.size - compressedSize) / 1024 + ' KB'}
+                        ? (file.size - compressedSize) / 1024 / 1024 + ' MB'
+                        : (file.size - compressedSize) / 1024 + ' KB'}
                     </div>
                 `;
                 overlay.querySelector('.modern-progress-container').after(resultDiv);
@@ -942,143 +1025,74 @@ function setupImageUpload() {
  * Crea un Web Worker inline desde código JavaScript
  * Esto permite que funcione en file:// sin necesidad de servidor
  */
-function createImageWorkerBlob() {
+/**
+ * Crea un Web Worker (intenta cargar desde archivo, fallback a inline para file://)
+ */
+async function getWorkerURL() {
+    // Si estamos en un servidor (http/https), el archivo externo es más limpio
+    if (window.location.protocol.startsWith('http')) {
+        return 'imageWorker.js';
+    }
+
+    // Fallback a Blob inline para file:// (compatible con seguridad del navegador)
+    if (window._workerBlobURL) return window._workerBlobURL;
+
+    // El código del worker está duplicado aquí para file:// compatibility
+    // En producción con servidor, este bloque no se usaría idealmente.
     const workerCode = `
-self.onmessage = async function(e) {
-    const { imageData, maxWidth, quality, fileType } = e.data;
+        self.onmessage = async function(e) {
+            const { imageData, maxWidth, quality, fileType } = e.data;
+            try {
+                const img = await loadImage(imageData);
+                let width = img.width;
+                let height = img.height;
+                self.postMessage({ type: 'info', originalWidth: width, originalHeight: height });
 
-    try {
-        const img = await loadImage(imageData);
-        let width = img.width;
-        let height = img.height;
+                if (width > 3000 || height > 3000) {
+                    self.postMessage({ type: 'progress', progress: 10, message: 'Imagen muy grande...' });
+                    const intermediateWidth = width * 0.5;
+                    const intermediateHeight = height * 0.5;
+                    const step1Canvas = new OffscreenCanvas(intermediateWidth, intermediateHeight);
+                    const step1Ctx = step1Canvas.getContext('2d');
+                    step1Ctx.drawImage(img, 0, 0, intermediateWidth, intermediateHeight);
+                    width = intermediateWidth; height = intermediateHeight;
+                    if (width > maxWidth) { height = (height * maxWidth) / width; width = maxWidth; }
+                    const finalCanvas = new OffscreenCanvas(width, height);
+                    const finalCtx = finalCanvas.getContext('2d');
+                    if (fileType === 'image/png') finalCtx.clearRect(0, 0, width, height);
+                    finalCtx.drawImage(step1Canvas, 0, 0, width, height);
+                    const blob = await finalCanvas.convertToBlob({ type: getSupportedType(fileType), quality: quality });
+                    const dataUrl = await blobToDataURL(blob);
+                    self.postMessage({ type: 'success', result: dataUrl, originalSize: imageData.length, compressedSize: dataUrl.length });
+                } else {
+                    if (width > maxWidth) { height = (height * maxWidth) / width; width = maxWidth; }
+                    const canvas = new OffscreenCanvas(width, height);
+                    const ctx = canvas.getContext('2d');
+                    if (fileType === 'image/png') ctx.clearRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const blob = await canvas.convertToBlob({ type: getSupportedType(fileType), quality: quality });
+                    const dataUrl = await blobToDataURL(blob);
+                    self.postMessage({ type: 'success', result: dataUrl, originalSize: imageData.length, compressedSize: dataUrl.length });
+                }
+            } catch (error) { self.postMessage({ type: 'error', error: error.message }); }
+        };
 
-        self.postMessage({
-            type: 'info',
-            originalWidth: width,
-            originalHeight: height
-        });
-
-        if (width > 3000 || height > 3000) {
-            self.postMessage({ type: 'progress', progress: 10, message: 'Imagen muy grande detectada...' });
-
-            const intermediateWidth = width * 0.5;
-            const intermediateHeight = height * 0.5;
-            const step1Canvas = createCanvas(intermediateWidth, intermediateHeight);
-            const step1Ctx = step1Canvas.getContext('2d');
-            step1Ctx.drawImage(img, 0, 0, intermediateWidth, intermediateHeight);
-
-            self.postMessage({ type: 'progress', progress: 40, message: 'Reduciendo tamaño inicial...' });
-
-            width = intermediateWidth;
-            height = intermediateHeight;
-
-            if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-            }
-
-            const finalCanvas = createCanvas(width, height);
-            const finalCtx = finalCanvas.getContext('2d');
-
-            if (fileType === 'image/png') {
-                finalCtx.clearRect(0, 0, width, height);
-            }
-
-            finalCtx.drawImage(step1Canvas, 0, 0, width, height);
-            self.postMessage({ type: 'progress', progress: 70, message: 'Aplicando compresión...' });
-
-            const outputType = getSupportedType(fileType);
-            const blob = await canvasToBlob(finalCanvas, outputType, quality);
-            self.postMessage({ type: 'progress', progress: 90, message: 'Finalizando...' });
-
-            const dataUrl = await blobToDataURL(blob);
-
-            self.postMessage({
-                type: 'success',
-                result: dataUrl,
-                originalSize: imageData.length,
-                compressedSize: dataUrl.length
-            });
-
-        } else {
-            self.postMessage({ type: 'progress', progress: 30, message: 'Procesando imagen...' });
-
-            if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-            }
-
-            const canvas = createCanvas(width, height);
-            const ctx = canvas.getContext('2d');
-
-            if (fileType === 'image/png') {
-                ctx.clearRect(0, 0, width, height);
-            }
-
-            ctx.drawImage(img, 0, 0, width, height);
-            self.postMessage({ type: 'progress', progress: 60, message: 'Comprimiendo...' });
-
-            const outputType = getSupportedType(fileType);
-            const blob = await canvasToBlob(canvas, outputType, quality);
-            const dataUrl = await blobToDataURL(blob);
-
-            self.postMessage({
-                type: 'success',
-                result: dataUrl,
-                originalSize: imageData.length,
-                compressedSize: dataUrl.length
-            });
+        async function loadImage(dataUrl) {
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            return await createImageBitmap(blob);
         }
 
-    } catch (error) {
-        self.postMessage({
-            type: 'error',
-            error: error.message
-        });
-    }
-};
+        function blobToDataURL(blob) {
+            return new Promise((r) => { const reader = new FileReader(); reader.onload = () => r(reader.result); reader.readAsDataURL(blob); });
+        }
 
-async function loadImage(dataUrl) {
-    try {
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        const bitmap = await createImageBitmap(blob);
-        return bitmap;
-    } catch (error) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
-            img.src = dataUrl;
-        });
-    }
-}
-
-function createCanvas(width, height) {
-    return new OffscreenCanvas(width, height);
-}
-
-async function canvasToBlob(canvas, type, quality) {
-    return await canvas.convertToBlob({ type: type, quality: quality });
-}
-
-function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Error al convertir blob'));
-        reader.readAsDataURL(blob);
-    });
-}
-
-function getSupportedType(fileType) {
-    const supportedTypes = ['image/png', 'image/jpeg', 'image/webp'];
-    return supportedTypes.includes(fileType) ? fileType : 'image/jpeg';
-}
+        function getSupportedType(t) { return ['image/png', 'image/jpeg', 'image/webp'].includes(t) ? t : 'image/jpeg'; }
     `;
 
     const blob = new Blob([workerCode], { type: 'application/javascript' });
-    return URL.createObjectURL(blob);
+    window._workerBlobURL = URL.createObjectURL(blob);
+    return window._workerBlobURL;
 }
 
 /**
@@ -1090,7 +1104,10 @@ function getSupportedType(fileType) {
  * @param {Function} onProgress - Callback de progreso
  * @returns {Promise<string>} - Data URL de la imagen comprimida
  */
-function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processingToken, onProgress) {
+async function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processingToken, onProgress) {
+    // Obtener URL del worker (archivo o blob) ANTES de la promesa
+    const workerURL = await getWorkerURL();
+
     return new Promise((resolve, reject) => {
         const appConfig = window.APP_CONFIG || { IMAGE: { MAX_FILE_SIZE: 10 * 1024 * 1024 } };
 
@@ -1101,8 +1118,6 @@ function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processi
             return;
         }
 
-        // Crear Web Worker inline (funciona en file://)
-        const workerURL = createImageWorkerBlob();
         const worker = new Worker(workerURL);
         processingToken.worker = worker;
         processingToken.workerURL = workerURL;
@@ -1110,7 +1125,7 @@ function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processi
         // Leer archivo
         const reader = new FileReader();
 
-        reader.onload = function(e) {
+        reader.onload = function (e) {
             if (processingToken.cancelled) {
                 worker.terminate();
                 URL.revokeObjectURL(workerURL);
@@ -1127,14 +1142,14 @@ function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processi
             });
         };
 
-        reader.onerror = function() {
+        reader.onerror = function () {
             worker.terminate();
             URL.revokeObjectURL(workerURL);
             reject(new Error('No se pudo leer el archivo'));
         };
 
         // Escuchar mensajes del worker
-        worker.onmessage = function(e) {
+        worker.onmessage = function (e) {
             const { type, progress, message, result, error } = e.data;
 
             if (processingToken.cancelled) {
@@ -1176,7 +1191,7 @@ function compressImageWithWorker(file, maxWidth = 1200, quality = 0.85, processi
             }
         };
 
-        worker.onerror = function(error) {
+        worker.onerror = function (error) {
             worker.terminate();
             URL.revokeObjectURL(workerURL);
             processingToken.worker = null;
@@ -1253,12 +1268,12 @@ function compressImage(file, maxWidth = 1200, quality = 0.85, onProgress = null)
             reject(new Error(`Timeout al procesar la imagen (${timeoutSec}s)`));
         }, appConfig.IMAGE.PROCESSING_TIMEOUT);
 
-        reader.onload = function(e) {
+        reader.onload = function (e) {
             if (onProgress) onProgress(20);
 
             img = new Image();
 
-            img.onload = function() {
+            img.onload = function () {
                 try {
                     if (onProgress) onProgress(40);
 
@@ -1308,7 +1323,7 @@ function compressImage(file, maxWidth = 1200, quality = 0.85, onProgress = null)
                 }
             };
 
-            img.onerror = function() {
+            img.onerror = function () {
                 cleanup();
                 reject(new Error('No se pudo cargar la imagen'));
             };
@@ -1316,29 +1331,13 @@ function compressImage(file, maxWidth = 1200, quality = 0.85, onProgress = null)
             img.src = e.target.result;
         };
 
-        reader.onerror = function() {
+        reader.onerror = function () {
             cleanup();
             reject(new Error('No se pudo leer el archivo'));
         };
 
         reader.readAsDataURL(file);
     });
-}
-
-/**
- * Continúa con la generación de PDF después de la confirmación
- */
-async function continueGeneration(config) {
-    try {
-        // Usar el generador optimizado
-        await window.pdfGenerator.generatePDF(config);
-    } catch (error) {
-        // Error ya manejado por el generador de PDF
-        toast.error(
-            'Error al generar el PDF: ' + error.message,
-            'Error en la generación ❌'
-        );
-    }
 }
 
 // Caché para imágenes ya convertidas (evita reconversiones)
@@ -1397,7 +1396,7 @@ async function imageUrlToBase64(url) {
             }
         };
 
-        img.onload = function() {
+        img.onload = function () {
             try {
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
@@ -1418,7 +1417,7 @@ async function imageUrlToBase64(url) {
             }
         };
 
-        img.onerror = function() {
+        img.onerror = function () {
             console.warn('No se pudo cargar imagen:', url);
             resolveOnce(url);
         };
@@ -1436,388 +1435,102 @@ async function imageUrlToBase64(url) {
 }
 
 /**
- * Descarga múltiples PDFs automáticamente dividiendo en lotes
- * Para grandes volúmenes (>200 tickets)
- */
-async function downloadPdfInBatches() {
-    const config = getConfig();
-    const totalTickets = config.endNumber - config.startNumber + 1;
-    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_PER_PDF: 200, MAX_TICKETS_TOTAL: 10000 } };
-
-    if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
-        toast.error(
-            `El máximo es ${appConfig.PDF.MAX_TICKETS_TOTAL} tickets. Por favor reduce la cantidad.`,
-            'Demasiados tickets ❌'
-        );
-        return;
-    }
-
-    const ticketsPerPdf = appConfig.PDF.MAX_TICKETS_PER_PDF;
-    const totalPdfs = Math.ceil(totalTickets / ticketsPerPdf);
-
-    // Confirmar con el usuario
-    const confirmToast = toast.info(
-        `Se generarán ${totalPdfs} archivos PDF (${ticketsPerPdf} tickets cada uno aprox.). ¿Continuar?`,
-        '📦 Descarga en lotes',
-        0
-    );
-
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            const toastElement = document.getElementById(confirmToast);
-            if (!toastElement) return;
-
-            const buttonContainer = document.createElement('div');
-            buttonContainer.style.cssText = 'margin-top: 12px; display: flex; gap: 10px;';
-
-            const confirmBtn = document.createElement('button');
-            confirmBtn.textContent = `✓ Generar ${totalPdfs} PDFs`;
-            confirmBtn.style.cssText = 'flex: 1; padding: 8px 16px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = '✗ Cancelar';
-            cancelBtn.style.cssText = 'flex: 1; padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
-
-            confirmBtn.onclick = async () => {
-                toast.hide(confirmToast);
-                await generateBatchPdfs(config, totalTickets, ticketsPerPdf);
-                resolve(true);
-            };
-
-            cancelBtn.onclick = () => {
-                toast.hide(confirmToast);
-                resolve(false);
-            };
-
-            buttonContainer.appendChild(confirmBtn);
-            buttonContainer.appendChild(cancelBtn);
-            toastElement.querySelector('.toast-content').appendChild(buttonContainer);
-        }, 100);
-    });
-}
-
-/**
- * Genera múltiples PDFs en lotes
- */
-async function generateBatchPdfs(config, totalTickets, ticketsPerPdf) {
-    const totalPdfs = Math.ceil(totalTickets / ticketsPerPdf);
-    const progressToast = toast.progress('Iniciando descarga en lotes...', 'Preparando');
-
-    let currentStart = config.startNumber;
-
-    for (let pdfIndex = 0; pdfIndex < totalPdfs; pdfIndex++) {
-        const currentEnd = Math.min(currentStart + ticketsPerPdf - 1, config.endNumber);
-        const ticketsInThisPdf = currentEnd - currentStart + 1;
-
-        toast.update(
-            progressToast,
-            `Generando PDF ${pdfIndex + 1} de ${totalPdfs}...`,
-            `Tickets ${currentStart}-${currentEnd}`
-        );
-
-        // Crear config temporal para este lote
-        const batchConfig = { ...config, startNumber: currentStart, endNumber: currentEnd };
-
-        try {
-            await downloadSinglePdf(batchConfig, `${pdfIndex + 1}_de_${totalPdfs}`);
-        } catch (error) {
-            console.error(`Error generando PDF ${pdfIndex + 1}:`, error);
-            toast.error(
-                `Error en PDF ${pdfIndex + 1}: ${error.message}`,
-                'Error parcial ⚠️',
-                5000
-            );
-        }
-
-        currentStart = currentEnd + 1;
-
-        // Pausa entre PDFs para no saturar
-        if (pdfIndex < totalPdfs - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
-
-    toast.complete(
-        progressToast,
-        `✓ ${totalPdfs} PDFs descargados con ${totalTickets} tickets total`,
-        'success',
-        5000
-    );
-}
-
-/**
- * Descarga un PDF individual (función auxiliar)
- */
-async function downloadSinglePdf(config, suffix = '') {
-    return downloadPdfDirectlyCore(config, suffix);
-}
-
-/**
- * Descarga PDF directamente usando jsPDF + html2canvas
- * Versión reescrita sin html2pdf.js para evitar problemas de compatibilidad
+ * Descarga PDF usando el generador optimizado
  */
 async function downloadPdfDirectly() {
     const config = getConfig();
-    const totalTickets = config.endNumber - config.startNumber + 1;
-    const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_DIRECT: 100, AUTO_SPLIT_THRESHOLD: 200 } };
-
-    // Si excede el umbral, ofrecer descarga en lotes
-    if (totalTickets > appConfig.PDF.AUTO_SPLIT_THRESHOLD) {
-        toast.info(
-            `Para ${totalTickets} tickets, se recomienda descarga en lotes automática.`,
-            'Usar descarga en lotes? 📦',
-            5000
-        );
-
-        return downloadPdfInBatches();
-    }
-
-    // Validar límites (conservador para descarga directa)
-    if (totalTickets > appConfig.PDF.MAX_TICKETS_DIRECT) {
-        toast.warning(
-            `Para descargas directas, el máximo es ${appConfig.PDF.MAX_TICKETS_DIRECT} tickets. Usa "Imprimir (Vista Previa)" o divide en lotes.`,
-            'Demasiados tickets ⚠️'
-        );
-        return;
-    }
-
-    return downloadPdfDirectlyCore(config);
+    window.pdfGenerator.generatePDF(config, 'download');
 }
 
 /**
- * Función core para generar PDF (usada por descarga normal y en lotes)
+ * Guarda los datos del formulario en localStorage
  */
-async function downloadPdfDirectlyCore(config, suffix = '') {
-
-    // Validar que las bibliotecas estén disponibles
-    const jsPDF = window.jspdf?.jsPDF; // jsPDF v2+ se accede así
-    if (!jsPDF || typeof html2canvas === 'undefined') {
-        console.error('Estado de bibliotecas:', {
-            jspdf: window.jspdf,
-            jsPDF: jsPDF,
-            html2canvas: typeof html2canvas
-        });
-        toast.error(
-            'Las bibliotecas PDF no se cargaron correctamente. Por favor, recarga la página.',
-            'Error de bibliotecas ❌'
-        );
-        return;
-    }
-
-    const progressToast = toast.progress('Preparando PDF...', 'Iniciando');
-
-    // Convertir imágenes a base64 primero
-    toast.update(progressToast, 'Convirtiendo imágenes...', 'Progreso: 5%');
-    let imageBase64 = config.imageUrl;
-    let qrBase64 = config.qrUrl;
-
+function saveFormData() {
     try {
-        if (config.imageUrl && !config.imageUrl.startsWith('data:')) {
-            imageBase64 = await imageUrlToBase64(config.imageUrl);
-        }
-    } catch (error) {
-        console.warn('Error al convertir imagen:', error);
-    }
-
-    try {
-        if (config.qrUrl && !config.qrUrl.startsWith('data:')) {
-            qrBase64 = await imageUrlToBase64(config.qrUrl);
-        }
-    } catch (error) {
-        console.warn('Error al convertir QR:', error);
-    }
-
-    const pdfConfig = { ...config, imageUrl: imageBase64, qrUrl: qrBase64 };
-
-    // Crear contenedor temporal VISIBLE para renderizado
-    const tempContainer = document.createElement('div');
-    tempContainer.style.cssText = `
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 210mm;
-        background: white;
-        z-index: 9999;
-    `;
-    document.body.appendChild(tempContainer);
-
-    try {
-        const ticketsPerPage = config.ticketsPerPage;
-        const totalPages = Math.ceil(totalTickets / ticketsPerPage);
-        let currentTicket = config.startNumber;
-
-        toast.update(progressToast, 'Generando tickets...', 'Progreso: 15%');
-
-        // Crear PDF
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-
-        // Generar cada página del PDF
-        for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
-            // Limpiar contenedor
-            tempContainer.innerHTML = '';
-
-            // Crear página con estilos similares al print
-            const printPage = document.createElement('div');
-            printPage.style.cssText = `
-                width: 210mm;
-                height: 297mm;
-                background: white;
-                display: flex;
-                flex-direction: column;
-                justify-content: flex-start;
-                align-items: center;
-                padding: ${ticketsPerPage === 6 ? '2mm 3mm' : '2mm 3mm'};
-                gap: ${ticketsPerPage === 6 ? '1mm' : '0.5mm'};
-                box-sizing: border-box;
-            `;
-
-            const ticketsInThisPage = Math.min(ticketsPerPage, config.endNumber - currentTicket + 1);
-
-            // Generar tickets para esta página
-            for (let i = 0; i < ticketsInThisPage; i++) {
-                const ticketWrapper = document.createElement('div');
-                ticketWrapper.style.cssText = `
-                    height: ${ticketsPerPage === 6 ? 'calc((297mm - 4mm - 5mm) / 6)' : 'calc((297mm - 4mm - 3.5mm) / 8)'};
-                    width: 100%;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    flex-shrink: 0;
-                `;
-
-                const ticketScaled = document.createElement('div');
-                ticketScaled.style.cssText = `
-                    transform: scale(${ticketsPerPage === 6 ? '0.68' : '0.56'});
-                    transform-origin: center center;
-                `;
-
-                const ticket = createTicket(currentTicket, pdfConfig);
-                if (ticket) {
-                    ticketScaled.appendChild(ticket);
-                    ticketWrapper.appendChild(ticketScaled);
-                    printPage.appendChild(ticketWrapper);
-                }
-                currentTicket++;
-            }
-
-            tempContainer.appendChild(printPage);
-
-            // Actualizar progreso
-            const progress = 15 + ((pageIndex + 1) / totalPages) * 40;
-            toast.update(progressToast, `Generando página ${pageIndex + 1}/${totalPages}...`, `Progreso: ${progress.toFixed(0)}%`);
-
-            // Esperar imágenes de esta página (timeout reducido)
-            const images = tempContainer.querySelectorAll('img');
-            await Promise.all(Array.from(images).map(img => {
-                if (img.complete) return Promise.resolve();
-                return Promise.race([
-                    new Promise(resolve => {
-                        img.onload = img.onerror = resolve;
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 2500)) // Reducido de 3000ms
-                ]);
-            }));
-
-            // Dar tiempo para renderizado (optimizado)
-            await new Promise(resolve => setTimeout(resolve, 200)); // Reducido de 300ms
-
-            // Capturar esta página con html2canvas (optimizado)
-            toast.update(progressToast, `Capturando página ${pageIndex + 1}/${totalPages}...`, `Progreso: ${(55 + (pageIndex / totalPages) * 25).toFixed(0)}%`);
-
-            const canvas = await html2canvas(printPage, {
-                scale: 1.8, // Reducido de 2 (20% más rápido, calidad similar)
-                useCORS: false,
-                allowTaint: true,
-                logging: false,
-                backgroundColor: '#ffffff',
-                width: printPage.offsetWidth,
-                height: printPage.offsetHeight,
-                removeContainer: false
-            });
-
-            console.log(`Página ${pageIndex + 1} capturada:`, canvas.width, 'x', canvas.height);
-
-            // Convertir canvas a imagen
-            const imgData = canvas.toDataURL('image/jpeg', 0.92);
-
-            // Limpiar canvas para liberar memoria
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            canvas.width = 0;
-            canvas.height = 0;
-
-            // Agregar página al PDF
-            if (pageIndex > 0) {
-                pdf.addPage();
-            }
-
-            // Ajustar imagen para que encaje en la página A4
-            const imgWidth = pdfWidth;
-            const imgHeight = (canvas.height || 1) * pdfWidth / (canvas.width || 1);
-
-            pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, Math.min(imgHeight, pdfHeight));
-
-            // Pequeña pausa entre páginas (optimizada)
-            await new Promise(resolve => setTimeout(resolve, 50)); // Reducido de 100ms
-        }
-
-        // Descargar PDF
-        toast.update(progressToast, 'Guardando PDF...', 'Progreso: 95%');
-
-        const filename = suffix
-            ? `tickets_${config.startNumber}-${config.endNumber}_parte_${suffix}.pdf`
-            : `tickets_${config.startNumber}-${config.endNumber}.pdf`;
-
-        pdf.save(filename);
-
-        if (!suffix) {
-            // Solo mostrar toast de éxito si no es parte de un lote
-            toast.complete(progressToast, `✓ PDF generado con ${totalTickets} tickets (${totalPages} páginas)`, 'success', 3000);
-        }
-
-    } catch (error) {
-        toast.hide(progressToast);
-        console.error('Error al generar PDF:', error);
-
-        toast.error(
-            `Error: ${error.message}. Intenta con menos tickets o usa "Imprimir (Vista Previa)".`,
-            'Error al generar PDF ❌',
-            6000
-        );
-    } finally {
-        // Cerrar toast si es parte de un lote
-        if (suffix) {
-            toast.hide(progressToast);
-        }
-
-        // Limpieza mejorada con timeout reducido
-        setTimeout(() => {
-            if (tempContainer && tempContainer.parentNode) {
-                tempContainer.parentNode.removeChild(tempContainer);
-            }
-
-            // Limpiar canvas huérfanos creados por html2canvas
-            document.querySelectorAll('canvas').forEach(canvas => {
-                if (!canvas.closest('.ticket') && !canvas.closest('.preview-container')) {
-                    try {
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        }
-                        canvas.width = 0;
-                        canvas.height = 0;
-                        if (canvas.parentNode) {
-                            canvas.parentNode.removeChild(canvas);
-                        }
-                    } catch (e) {
-                        // Ignorar errores de limpieza
-                    }
-                }
-            });
-        }, 300); // Reducido de 500ms
+        const config = getConfig();
+        // No guardar la URL de la imagen si es muy grande (dataURL), mejor solo la URL externa o nada para no saturar localStorage
+        // Pero el usuario pidió que se guarde, así que intentaremos si no excede los límites típicos (5MB)
+        localStorage.setItem('ticketConfig', JSON.stringify(config));
+        console.log('Datos guardados en localStorage');
+    } catch (e) {
+        console.warn('No se pudo guardar en localStorage (posiblemente por tamaño de imagen)', e);
     }
 }
+
+/**
+ * Carga los datos del formulario desde localStorage
+ */
+function loadFormData() {
+    try {
+        const saved = localStorage.getItem('ticketConfig');
+        if (!saved) return;
+
+        const config = JSON.parse(saved);
+        const mapping = {
+            'startNumber': config.startNumber,
+            'endNumber': config.endNumber,
+            'ticketsPerPage': config.ticketsPerPage,
+            'dayOfWeek': config.dayOfWeek,
+            'dateText': config.dateText,
+            'year': config.year,
+            'dateColor': config.dateColor,
+            'eventTitle': config.eventTitle,
+            'eventSubtitle': config.eventSubtitle,
+            'titleFont': config.titleFont,
+            'subtitleFont': config.subtitleFont,
+            'titleColor': config.titleColor,
+            'subtitleColor': config.subtitleColor,
+            'brandText': config.brandText,
+            'voucherType': config.voucherType,
+            'voucherQuantity': config.voucherQuantity,
+            'voucherFont': config.voucherFont,
+            'voucherColor': config.voucherColor,
+            'location1': config.location1,
+            'location2': config.location2,
+            'imageUrl': config.imageUrl,
+            'qrLink': config.qrLink,
+            'titleSize': config.titleSize,
+            'subtitleSize': config.subtitleSize
+        };
+
+        for (const [id, value] of Object.entries(mapping)) {
+            const el = document.getElementById(id);
+            if (el && value !== undefined) {
+                el.value = value;
+                // Si es un color picker con hidden, actualizar ambos
+                if (id.includes('Color')) {
+                    const picker = document.getElementById(id + 'Custom');
+                    if (picker) picker.value = value;
+                    // Marcar la opción seleccionada visualmente
+                    const container = el.closest('.color-selector') || (picker ? picker.closest('.color-selector') : null);
+                    if (container) {
+                        container.querySelectorAll('.color-option').forEach(opt => {
+                            if (opt.dataset.color === value) opt.classList.add('selected');
+                            else opt.classList.remove('selected');
+                        });
+                    }
+                }
+            }
+        }
+
+        // Actualizar UI especial
+        if (config.imageUrl) {
+            const dropZone = document.getElementById('imageDropZone');
+            if (dropZone) dropZone.classList.add('has-image');
+        }
+
+        // Sincronizar locationFull si existe
+        const locationFull = document.getElementById('locationFull');
+        if (locationFull && config.location1) {
+            locationFull.value = config.location1;
+        }
+
+    } catch (e) {
+        console.error('Error al cargar localStorage', e);
+    }
+}
+
+
+
 
 // Loosely inspired by https://dribbble.com/shots/9165032-Luke-Combs-Ticket-Stub

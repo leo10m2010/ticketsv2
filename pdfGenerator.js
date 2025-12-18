@@ -7,18 +7,23 @@ class PDFGenerator {
     constructor() {
         // Usar configuración global
         const config = window.APP_CONFIG || { PDF: { BATCH_SIZE: 50, MAX_MEMORY_MB: 400 } };
-        this.batchSize = config.PDF.BATCH_SIZE;
-        this.maxMemoryUsage = config.PDF.MAX_MEMORY_MB * 1024 * 1024;
         this.isCancelled = false;
         this.isProcessing = false;
+        this.progressToastId = null;
     }
 
     /**
      * Genera PDF optimizado con soporte para grandes volúmenes
      * @param {Object} config - Configuración de los tickets
+     * @param {string} mode - 'print' o 'download'
      * @returns {Promise<void>}
      */
-    async generatePDF(config) {
+    async generatePDF(config, mode = 'download') {
+        if (this.isProcessing) {
+            toast.warning('Ya hay una generación en proceso', 'Espere por favor');
+            return;
+        }
+
         this.isCancelled = false;
         this.isProcessing = true;
 
@@ -26,437 +31,342 @@ class PDFGenerator {
         const totalTickets = config.endNumber - config.startNumber + 1;
 
         try {
-            // Validar límites usando configuración
-            const appConfig = window.APP_CONFIG || { PDF: { MAX_TICKETS_TOTAL: 2000 } };
-            if (totalTickets > appConfig.PDF.MAX_TICKETS_TOTAL) {
-                toast.error(
-                    `Máximo ${appConfig.PDF.MAX_TICKETS_TOTAL} tickets permitidos para mantener el rendimiento. Por favor, genera los tickets en lotes más pequeños.`,
-                    'Demasiados tickets'
-                );
-                return;
+            // Validar bibliotecas
+            const jsPDF = window.jspdf?.jsPDF;
+            if (!jsPDF || typeof html2canvas === 'undefined') {
+                throw new Error('Bibliotecas PDF no cargadas. Recarga la página.');
             }
 
             // Mostrar toast de progreso
-        this.progressToastId = toast.progress('Iniciando generación de PDF...', 'Generando tickets');
+            this.progressToastId = toast.progress(
+                mode === 'print' ? 'Preparando impresión...' : 'Iniciando descarga (Alta Calidad)...',
+                'Iniciando'
+            );
 
-            // Registrar estadísticas iniciales
-            const startMemory = this.getMemoryUsage();
-
-            // Usar estrategia según el volumen
-            if (totalTickets <= 100) {
-                await this.generateSmallBatch(config);
-            } else {
-                await this.generateLargeBatch(config);
+            // Pre-abrir ventana para impresión (evitar bloqueo de popups)
+            let printWindow = null;
+            if (mode === 'print') {
+                printWindow = window.open('', '_blank');
+                if (printWindow) {
+                    printWindow.document.write(`
+                        <html>
+                            <head><title>Generando Vista Previa...</title></head>
+                            <body style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5;">
+                                <div style="text-align: center;">
+                                    <div style="font-size: 24px; margin-bottom: 20px;">Generando Vista Previa...</div>
+                                    <div style="color: #666;">Por favor espere mientras se preparan sus tickets.</div>
+                                    <div style="font-size: 14px; color: #888;">Esto puede tomar unos segundos...</div>
+                                </div>
+                            </body>
+                        </html>
+                    `);
+                } else {
+                    toast.warning('Por favor permite las ventanas emergentes para ver la vista previa.', 'Pop-up bloqueado');
+                }
             }
 
-            const endTime = performance.now();
-            const duration = (endTime - startTime) / 1000;
-            const endMemory = this.getMemoryUsage();
-            const memoryUsed = ((endMemory - startMemory) / 1024 / 1024).toFixed(1);
-            const ticketsPerSecond = totalTickets / duration;
+            // 1. Pre-procesar imágenes (convertir a Base64)
+            toast.update(this.progressToastId, 'Optimizando imágenes...', 'Progreso: 5%');
+            const optimizedConfig = await this.optimizeImages(config);
 
-            // Cerrar toast de progreso y mostrar éxito
-            if (this.progressToastId) {
+            // --- OPTIMIZACIÓN MASIVA ---
+            const maxTicketsPerFile = window.APP_CONFIG?.PDF?.MAX_TICKETS_PER_PDF || 200;
+            const shouldSplit = config.splitPdf && totalTickets > maxTicketsPerFile && mode === 'download';
+
+            // Escalado adaptativo: 100+ tickets -> scale 2 (ahorra mucha RAM), else scale 3
+            const adaptiveScale = totalTickets > 100 ? 2 : 3;
+            // Calidad JPEG adaptativa: 100+ tickets -> 0.8, else 0.95
+            const jpegQuality = totalTickets > 100 ? 0.8 : 0.95;
+            // ---------------------------
+
+            // 3. Crear contenedor temporal invisible
+            const tempContainer = document.createElement('div');
+            tempContainer.id = 'pdf-temp-container';
+            tempContainer.style.cssText = `
+                position: fixed;
+                left: -10000px;
+                top: 0;
+                width: 210mm;
+                height: 297mm;
+                background: white;
+                z-index: -1;
+                pointer-events: none;
+            `;
+            document.body.appendChild(tempContainer);
+
+            try {
+                let currentTicket = optimizedConfig.startNumber;
+                let ticketsProcessedInCurrentFile = 0;
+                let fileIndex = 1;
+                let pdf = new jsPDF('p', 'mm', 'a4');
+                const ticketsPerPage = optimizedConfig.ticketsPerPage;
+                const totalPages = Math.ceil(totalTickets / ticketsPerPage);
+                const pdfWidth = 210;
+                const pdfHeight = 297;
+
+                // 4. Generar página por página
+                for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                    if (this.isCancelled) throw new Error('Proceso cancelado por el usuario');
+
+                    // Verificar si necesitamos empezar un nuevo archivo (segmentación)
+                    if (shouldSplit && ticketsProcessedInCurrentFile >= maxTicketsPerFile) {
+                        const rangeStart = currentTicket - ticketsProcessedInCurrentFile;
+                        const rangeEnd = currentTicket - 1;
+                        pdf.save(`tickets_${rangeStart}-${rangeEnd}_parte${fileIndex}.pdf`);
+
+                        // Reiniciar para nuevo archivo
+                        pdf = new jsPDF('p', 'mm', 'a4');
+                        ticketsProcessedInCurrentFile = 0;
+                        fileIndex++;
+
+                        toast.info(`Iniciando descarga de parte ${fileIndex}...`, 'Segmentación activa');
+                        await this.sleep(500); // Pausa para que el navegador procese la descarga anterior
+                    }
+
+                    // Limpiar contenedor
+                    tempContainer.innerHTML = '';
+
+                    // Crear estructura de página
+                    const pageElement = this.createPageStructure(ticketsPerPage);
+
+                    // Llenar con tickets
+                    const ticketsInThisPage = Math.min(ticketsPerPage, optimizedConfig.endNumber - currentTicket + 1);
+
+                    for (let i = 0; i < ticketsInThisPage; i++) {
+                        const ticketWrapper = this.createTicketWrapper(ticketsPerPage);
+                        const ticket = createTicket(currentTicket, optimizedConfig);
+
+                        // Escalar ticket para ajustar
+                        const scaleValue = ticketsPerPage === 6 ? '0.68' : '0.56';
+                        const ticketScaled = document.createElement('div');
+                        ticketScaled.style.cssText = `
+                            transform: scale(${scaleValue});
+                            transform-origin: center center;
+                            width: 100%;
+                            display: flex;
+                            justify-content: center;
+                        `;
+
+                        if (ticket) {
+                            ticket.style.boxShadow = 'none';
+                            ticket.style.border = '1px solid #e0e0e0';
+
+                            // Corregir marcas de agua
+                            const watermarks = ticket.querySelectorAll('.admit-one');
+                            watermarks.forEach(el => {
+                                if (el.parentElement) el.parentElement.style.position = 'relative';
+                                el.style.cssText += 'writing-mode: horizontal-tb; transform: rotate(90deg); transform-origin: center center; width: 250px; height: 30px; position: absolute; left: -110px; top: 110px; display: flex; justify-content: space-around; align-items: center; letter-spacing: 0.1em; font-weight: bold; white-space: nowrap;';
+                            });
+
+                            ticketScaled.appendChild(ticket);
+                            ticketWrapper.appendChild(ticketScaled);
+                            pageElement.appendChild(ticketWrapper);
+                        }
+                        currentTicket++;
+                        ticketsProcessedInCurrentFile++;
+                    }
+
+                    tempContainer.appendChild(pageElement);
+
+                    // Actualizar progreso
+                    const progress = 10 + ((pageIndex + 1) / totalPages) * 80;
+                    toast.update(
+                        this.progressToastId,
+                        `Procesando página ${pageIndex + 1} de ${totalPages}...`,
+                        `Progreso: ${progress.toFixed(0)}%`
+                    );
+
+                    // Esperar carga de imágenes
+                    await this.waitForImages(tempContainer);
+
+                    // Renderizar a Canvas con escalado adaptativo
+                    const canvas = await html2canvas(pageElement, {
+                        scale: adaptiveScale,
+                        useCORS: true,
+                        logging: false,
+                        backgroundColor: '#ffffff',
+                        width: 794, // A4 pixels at 96 DPI
+                        height: 1123
+                    });
+
+                    // Agregar a PDF (solo si no es la primera página del archivo actual)
+                    const isFirstPageOfFile = (ticketsProcessedInCurrentFile <= ticketsPerPage);
+                    if (!isFirstPageOfFile) {
+                        pdf.addPage();
+                    }
+
+                    const imgData = canvas.toDataURL('image/jpeg', jpegQuality);
+                    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+                    // Limpiar memoria CRÍTICO
+                    this.cleanupCanvas(canvas);
+
+                    // Pequeña pausa para no bloquear UI
+                    await this.sleep(totalTickets > 100 ? 30 : 10);
+                }
+
+                // 5. Finalizar (guardar el último o único archivo)
+                toast.update(this.progressToastId, 'Finalizando documento...', 'Progreso: 95%');
+
+                if (mode === 'print') {
+                    const pdfBlob = pdf.output('bloburl');
+                    if (printWindow) {
+                        printWindow.location.href = pdfBlob;
+                        setTimeout(() => URL.revokeObjectURL(pdfBlob), 60000);
+                    } else {
+                        window.open(pdfBlob, '_blank');
+                    }
+                } else {
+                    const rangeStart = currentTicket - ticketsProcessedInCurrentFile;
+                    const rangeEnd = currentTicket - 1;
+                    const suffix = shouldSplit ? `_parte${fileIndex}` : '';
+                    pdf.save(`tickets_${rangeStart}-${rangeEnd}${suffix}.pdf`);
+                }
+
+                const duration = ((performance.now() - startTime) / 1000).toFixed(1);
                 toast.complete(
                     this.progressToastId,
-                    `📊 Estadísticas de generación:\n• Tiempo total: ${duration.toFixed(1)}s\n• Tickets generados: ${totalTickets}\n• Memoria usada: ${memoryUsed}MB\n• Velocidad: ${ticketsPerSecond.toFixed(1)} tickets/segundo`,
+                    `✓ Completado en ${duration}s (${totalTickets} tickets)`,
                     'success',
                     5000
                 );
+
+            } finally {
+                if (tempContainer.parentNode) {
+                    tempContainer.parentNode.removeChild(tempContainer);
+                }
+                // Liberar memoria de imágenes optimizadas si son muchas
+                if (totalTickets > 50) {
+                    optimizedConfig.imageUrl = null;
+                    optimizedConfig.qrUrl = null;
+                }
             }
 
         } catch (error) {
-            // Cerrar toast de progreso
+            console.error('Error en generación:', error);
             if (this.progressToastId) {
-                toast.hide(this.progressToastId);
-            }
-            
-            if (error.message === 'Proceso cancelado por el usuario') {
-                toast.warning(
-                    'La generación de PDF fue cancelada exitosamente.',
-                    'Proceso cancelado ⏹️'
-                );
-            } else {
                 toast.error(
-                    `${error.message} Por favor, intenta con menos tickets o recarga la página.`,
-                    'Error en la generación ❌'
+                    `Error: ${error.message}`,
+                    'Falló la generación ❌'
                 );
             }
-            
-            throw error;
+            // Cerrar ventana de impresión si hubo error
+            if (mode === 'print' && typeof printWindow !== 'undefined' && printWindow) {
+                printWindow.close();
+            }
         } finally {
             this.isProcessing = false;
-            this.isCancelled = false;
             this.progressToastId = null;
-            this.cleanup();
         }
     }
 
     /**
-     * Genera lotes pequeños (≤100 tickets) - método tradicional optimizado
+     * Convierte imágenes a Base64 para evitar problemas de CORS y rendimiento
      */
-    async generateSmallBatch(config) {
-        const printArea = document.getElementById('printArea');
-        printArea.innerHTML = '';
+    async optimizeImages(config) {
+        const newConfig = { ...config };
 
-        const totalTickets = config.endNumber - config.startNumber + 1;
-        const ticketsPerPage = config.ticketsPerPage;
-        const totalPages = Math.ceil(totalTickets / ticketsPerPage);
+        // Helper para convertir URL a Base64
+        const toBase64 = async (url) => {
+            if (!url || url.startsWith('data:')) return url;
+            try {
+                // Usar la función existente en script.js si es posible, o implementar simple
+                if (window.imageUrlToBase64) return await window.imageUrlToBase64(url);
+                return url;
+            } catch (e) {
+                console.warn('No se pudo optimizar imagen:', url);
+                return url;
+            }
+        };
 
-        for (let page = 0; page < totalPages; page++) {
-            if (this.isCancelled) return;
+        if (newConfig.imageUrl) newConfig.imageUrl = await toBase64(newConfig.imageUrl);
+        if (newConfig.qrUrl) newConfig.qrUrl = await toBase64(newConfig.qrUrl);
 
-            await this.processPage(page, config);
-            
-            const progress = ((page + 1) / totalPages) * 100;
-            toast.update(this.progressToastId, `Generando página ${page + 1} de ${totalPages}`, `Progreso: ${progress.toFixed(0)}%`);
-            
-            // Pequeña pausa para no bloquear la UI
-            await this.sleep(10);
-        }
-
-        // Esperar a que las imágenes se carguen
-        await this.waitForImages();
-        
-        if (!this.isCancelled) {
-            window.print();
-        }
+        return newConfig;
     }
 
-    /**
-     * Genera lotes grandes (>100 tickets) - con procesamiento por lotes
-     */
-    async generateLargeBatch(config) {
-        const totalTickets = config.endNumber - config.startNumber + 1;
-        const totalBatches = Math.ceil(totalTickets / this.batchSize);
-        
-        let processedTickets = 0;
+    createPageStructure(ticketsPerPage) {
+        const div = document.createElement('div');
+        div.style.cssText = `
+            width: 210mm;
+            height: 297mm;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            padding: 2mm 3mm;
+            gap: ${ticketsPerPage === 6 ? '1mm' : '0.5mm'};
+            box-sizing: border-box;
+        `;
+        return div;
+    }
 
-        // Crear contenedor temporal para lotes
-        const tempContainer = document.createElement('div');
-        tempContainer.style.display = 'none';
-        document.body.appendChild(tempContainer);
+    createTicketWrapper(ticketsPerPage) {
+        const div = document.createElement('div');
+        div.style.cssText = `
+            height: ${ticketsPerPage === 6 ? 'calc((297mm - 4mm - 5mm) / 6)' : 'calc((297mm - 4mm - 3.5mm) / 8)'};
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        `;
+        return div;
+    }
 
-        try {
-            for (let batch = 0; batch < totalBatches; batch++) {
-                if (this.isCancelled) return;
+    async waitForImages(container) {
+        const promises = [];
 
-                const startTicket = config.startNumber + (batch * this.batchSize);
-                const endTicket = Math.min(startTicket + this.batchSize - 1, config.endNumber);
-                
-                // Procesar lote actual
-                await this.processBatch(startTicket, endTicket, config, tempContainer);
-                
-                processedTickets += (endTicket - startTicket + 1);
-                const progress = (processedTickets / totalTickets) * 100;
-                
-                this.updateProgress(progress, `Procesando tickets ${processedTickets} de ${totalTickets}`);
-                
-                // Monitorear uso de memoria
-                if (this.getMemoryUsage() > this.maxMemoryUsage) {
-                    await this.cleanupMemory(tempContainer);
+        // 1. Esperar imágenes <img>
+        const images = Array.from(container.querySelectorAll('img'));
+        images.forEach(img => {
+            if (img.complete) return;
+            promises.push(new Promise(resolve => {
+                img.onload = img.onerror = resolve;
+                setTimeout(resolve, 3000); // Timeout seguridad
+            }));
+        });
+
+        // 2. Esperar imagen de fondo (crítico para el diseño)
+        const bgDivs = Array.from(container.querySelectorAll('.image'));
+        bgDivs.forEach(div => {
+            const bgImage = div.style.backgroundImage;
+            if (bgImage && bgImage !== 'none') {
+                const url = bgImage.slice(5, -2); // Extraer URL de url("...")
+                if (url) {
+                    promises.push(new Promise(resolve => {
+                        const img = new Image();
+                        img.onload = img.onerror = resolve;
+                        img.src = url;
+                        setTimeout(resolve, 3000);
+                    }));
                 }
-                
-                // Pausa más larga entre lotes para mantener la UI responsiva
-                await this.sleep(batch < totalBatches - 1 ? 50 : 100);
             }
-
-            // Generar PDF final
-            await this.generateFinalPDF(tempContainer, config);
-            
-        } finally {
-            // Limpiar contenedor temporal
-            if (tempContainer.parentNode) {
-                tempContainer.parentNode.removeChild(tempContainer);
-            }
-        }
-    }
-
-    /**
-     * Procesa un lote de tickets
-     */
-    async processBatch(startTicket, endTicket, config, container) {
-        const ticketsPerPage = config.ticketsPerPage;
-        const ticketsInBatch = endTicket - startTicket + 1;
-        const pagesInBatch = Math.ceil(ticketsInBatch / ticketsPerPage);
-
-        for (let page = 0; page < pagesInBatch; page++) {
-            if (this.isCancelled) return;
-
-            const pageElement = document.createElement('div');
-            pageElement.className = `print-page tickets-${ticketsPerPage}`;
-            
-            const startInPage = startTicket + (page * ticketsPerPage);
-            const endInPage = Math.min(startInPage + ticketsPerPage - 1, endTicket);
-
-            for (let ticketNum = startInPage; ticketNum <= endInPage; ticketNum++) {
-                const ticketWrapper = document.createElement('div');
-                const ticket = this.createTicketElement(ticketNum, config);
-                ticketWrapper.appendChild(ticket);
-                pageElement.appendChild(ticketWrapper);
-            }
-
-            container.appendChild(pageElement);
-            
-            // Pequeña pausa para procesamiento
-            await this.sleep(5);
-        }
-    }
-
-    /**
-     * Genera el PDF final para lotes grandes
-     */
-    async generateFinalPDF(container, config) {
-        const printArea = document.getElementById('printArea');
-        printArea.innerHTML = '';
-        
-        // Mover contenido procesado al área de impresión
-        while (container.firstChild) {
-            printArea.appendChild(container.firstChild);
-        }
-
-        await this.waitForImages();
-        
-        if (!this.isCancelled) {
-            this.updateProgress(95, 'Preparando impresión...');
-            await this.sleep(200);
-            
-            // Ocultar toast temporalmente antes de imprimir
-            this.hideToastForPrint();
-            
-            // Pequeña pausa para asegurar que los toast se oculten
-            await this.sleep(100);
-            
-            window.print();
-            
-            // Restaurar toast después de imprimir (opcional)
-            setTimeout(() => this.restoreToastAfterPrint(), 500);
-        }
-    }
-
-    /**
-     * Crea un elemento de ticket optimizado
-     */
-    createTicketElement(ticketNumber, config) {
-        // Reutilizar la función existente del script principal
-        if (typeof createTicket === 'function') {
-            return createTicket(ticketNumber, config);
-        }
-        
-        // Fallback si la función no está disponible
-        const template = document.getElementById('ticketTemplate');
-        const ticketClone = template.cloneNode(true);
-        ticketClone.style.display = 'block';
-        ticketClone.id = '';
-        
-        // Actualizar número de ticket
-        const ticketNumElements = ticketClone.querySelectorAll('.ticket-number p, p.ticket-number');
-        ticketNumElements.forEach(elem => {
-            elem.textContent = '#' + String(ticketNumber).padStart(4, '0');
-        });
-        
-        return ticketClone;
-    }
-
-    /**
-     * Procesa una página individual (para lotes pequeños)
-     */
-    async processPage(pageIndex, config) {
-        const printArea = document.getElementById('printArea');
-        const printPage = document.createElement('div');
-        printPage.className = `print-page tickets-${config.ticketsPerPage}`;
-
-        const startTicket = config.startNumber + (pageIndex * config.ticketsPerPage);
-        const endTicket = Math.min(startTicket + config.ticketsPerPage - 1, config.endNumber);
-
-        for (let ticketNum = startTicket; ticketNum <= endTicket; ticketNum++) {
-            const ticketWrapper = document.createElement('div');
-            const ticket = this.createTicketElement(ticketNum, config);
-            ticketWrapper.appendChild(ticket);
-            printPage.appendChild(ticketWrapper);
-        }
-
-        printArea.appendChild(printPage);
-    }
-
-    /**
-     * Espera a que todas las imágenes se carguen con timeout
-     */
-    async waitForImages(timeout = null) {
-        const appConfig = window.APP_CONFIG || { TIMING: { IMAGE_LOAD_TIMEOUT: 10000 } };
-        const imageTimeout = timeout || appConfig.TIMING.IMAGE_LOAD_TIMEOUT;
-
-        const images = document.querySelectorAll('#printArea img');
-        const imagePromises = Array.from(images).map(img => {
-            if (img.complete) return Promise.resolve();
-
-            return Promise.race([
-                new Promise((resolve) => {
-                    const handleLoad = () => {
-                        img.removeEventListener('load', handleLoad);
-                        img.removeEventListener('error', handleLoad);
-                        resolve();
-                    };
-                    img.addEventListener('load', handleLoad);
-                    img.addEventListener('error', handleLoad);
-                }),
-                new Promise((resolve) =>
-                    setTimeout(() => {
-                        console.warn('Image load timeout:', img.src);
-                        resolve();
-                    }, imageTimeout)
-                )
-            ]);
         });
 
+        if (promises.length > 0) {
+            await Promise.all(promises);
+        }
+    }
+
+    cleanupCanvas(canvas) {
         try {
-            await Promise.all(imagePromises);
-        } catch (error) {
-            // Si alguna imagen falla, continuamos de todas formas
-            console.warn('Error loading images:', error);
-        }
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.width = 0;
+            canvas.height = 0;
+        } catch (e) { /* ignore */ }
     }
 
-
-
-
-
-
-
-    /**
-     * Cancela la generación con cleanup completo
-     */
     cancel() {
-        if (this.isProcessing && !this.isCancelled) {
-            this.isCancelled = true;
-
-            // Limpiar DOM
-            const printArea = document.getElementById('printArea');
-            if (printArea) {
-                printArea.innerHTML = '';
-            }
-
-            // Actualizar el toast para mostrar que se está cancelando
-            if (this.progressToastId) {
-                toast.update(this.progressToastId, 'Cancelando generación...', 'Procesando cancelación');
-
-                // Cerrar toast después de un momento
-                setManagedTimeout(() => {
-                    if (this.progressToastId) {
-                        toast.hide(this.progressToastId);
-                        this.progressToastId = null;
-                    }
-                }, 1000);
-            }
-
-            // Forzar cleanup
-            this.cleanup();
-        }
+        this.isCancelled = true;
     }
 
-    /**
-     * Actualiza el progreso de la generación
-     * @param {number} progress - Porcentaje de progreso (0-100)
-     * @param {string} message - Mensaje descriptivo del progreso
-     */
-    updateProgress(progress, message) {
-        if (this.progressToastId) {
-            toast.update(this.progressToastId, message, `Progreso: ${progress.toFixed(0)}%`);
-        }
-    }
-
-
-
-
-
-    /**
-     * Limpieza de memoria
-     */
-    cleanup() {
-        // Forzar recolección de basura si está disponible
-        if (window.gc) {
-            window.gc();
-        }
-    }
-
-    /**
-     * Limpieza de memoria para lotes grandes
-     */
-    async cleanupMemory(container) {
-        // Remover páginas antiguas del DOM
-        const pages = container.querySelectorAll('.print-page');
-        const pagesToRemove = Math.floor(pages.length * 0.3); // Remover 30% más antiguo
-        
-        for (let i = 0; i < pagesToRemove; i++) {
-            if (pages[i] && pages[i].parentNode) {
-                pages[i].parentNode.removeChild(pages[i]);
-            }
-        }
-        
-        // Pequeña pausa para permitir recolección de basura
-        await this.sleep(100);
-    }
-
-    /**
-     * Obtiene el uso de memoria aproximado
-     */
-    getMemoryUsage() {
-        // performance.memory solo está disponible en Chrome/Edge con flag
-        if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
-            return performance.memory.usedJSHeapSize;
-        }
-
-        // Fallback: estimar uso basado en número de elementos DOM
-        // Aproximadamente 1KB por elemento (conservador)
-        const domElements = document.querySelectorAll('*').length;
-        const estimatedSize = domElements * 1000;
-
-        return estimatedSize;
-    }
-
-    /**
-     * Oculta los toast temporalmente antes de imprimir
-     */
-    hideToastForPrint() {
-        const toastContainer = document.querySelector('.toast-container');
-        if (toastContainer) {
-            toastContainer.style.display = 'none';
-            toastContainer.style.visibility = 'hidden';
-        }
-        
-        // También ocultar cualquier toast individual
-        const toasts = document.querySelectorAll('.toast');
-        toasts.forEach(toast => {
-            toast.style.display = 'none';
-            toast.style.visibility = 'hidden';
-        });
-    }
-
-    /**
-     * Restaura los toast después de imprimir
-     */
-    restoreToastAfterPrint() {
-        const toastContainer = document.querySelector('.toast-container');
-        if (toastContainer) {
-            toastContainer.style.display = '';
-            toastContainer.style.visibility = '';
-        }
-        
-        // Restaurar toasts individuales
-        const toasts = document.querySelectorAll('.toast');
-        toasts.forEach(toast => {
-            toast.style.display = '';
-            toast.style.visibility = '';
-        });
-    }
-
-    /**
-     * Función auxiliar para sleep
-     */
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
 
-// Instancia global del generador
+// Instancia global
 window.pdfGenerator = new PDFGenerator();
