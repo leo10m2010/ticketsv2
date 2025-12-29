@@ -105,7 +105,9 @@
                 'imageUrl': config.imageUrl,
                 'qrLink': config.qrLink,
                 'titleSize': config.titleSize,
-                'subtitleSize': config.subtitleSize
+                'subtitleSize': config.subtitleSize,
+                'location2': config.location2,
+                'splitPdf': config.splitPdf
             };
 
             for (const [id, value] of Object.entries(mapping)) {
@@ -136,8 +138,10 @@
 
             // Sincronizar locationFull si existe
             const locationFull = document.getElementById('locationFull');
-            if (locationFull && config.location1) {
-                locationFull.value = config.location1;
+            if (locationFull) {
+                if (config.location1) {
+                    locationFull.value = config.location1 + (config.location2 ? ' ' + config.location2 : '');
+                }
             }
 
         } catch (e) {

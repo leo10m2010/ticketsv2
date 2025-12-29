@@ -98,6 +98,9 @@
         // Cargar datos guardados
         loadFormData();
 
+        // Actualizar vista previa de números en info-box
+        updatePreview();
+
         // Inicializar fecha de Perú
         const dateInput = document.getElementById('eventDate');
         if (dateInput && !dateInput.value) {

@@ -358,8 +358,9 @@ class PDFGenerator {
         images.forEach(img => {
             if (img.complete) return;
             promises.push(new Promise(resolve => {
+                const timeout = window.APP_CONFIG?.TIMING?.IMAGE_LOAD_TIMEOUT || 5000;
                 img.onload = img.onerror = resolve;
-                setTimeout(resolve, 3000); // Timeout seguridad
+                setTimeout(resolve, timeout); // Timeout seguridad
             }));
         });
 
@@ -371,10 +372,11 @@ class PDFGenerator {
                 const url = bgImage.slice(5, -2); // Extraer URL de url("...")
                 if (url) {
                     promises.push(new Promise(resolve => {
+                        const timeout = window.APP_CONFIG?.TIMING?.IMAGE_LOAD_TIMEOUT || 5000;
                         const img = new Image();
                         img.onload = img.onerror = resolve;
                         img.src = url;
-                        setTimeout(resolve, 3000);
+                        setTimeout(resolve, timeout);
                     }));
                 }
             }
