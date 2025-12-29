@@ -17,12 +17,12 @@
 		rel="stylesheet">
 
 	<link rel="stylesheet" href="https://public.codepenassets.com/css/reset-2.0.min.css">
-	<link rel="stylesheet" href="./style.css">
+	<link rel="stylesheet" href="./src/styles/style.css">
 
 </head>
 
 <body>
-	<link rel="stylesheet" href="font-awesome-custom.css" />
+	<link rel="stylesheet" href="./src/styles/font-awesome-custom.css" />
 
 	<!-- Dashboard de Configuración -->
 	<div id="dashboard" class="dashboard">
@@ -47,8 +47,18 @@
 						</div>
 					</div>
 					<div class="form-group">
+						<label>Modo de Ticket:</label>
+						<select id="ticketMode">
+							<option value="full">Completo (3 secciones)</option>
+							<option value="compact">Compacto (imagen + talon)</option>
+						</select>
+					</div>
+					<div class="form-group">
 						<label>Tickets por Página:</label>
 						<select id="ticketsPerPage">
+							<option value="1">1 ticket</option>
+							<option value="2">2 tickets</option>
+							<option value="4">4 tickets</option>
 							<option value="6">6 tickets</option>
 							<option value="8">8 tickets</option>
 						</select>
@@ -200,8 +210,7 @@
 							<p>Arrastra una imagen aquí o haz clic</p>
 							<input type="file" id="imageFileInput" accept="image/*" style="display: none;">
 						</div>
-						<input type="text" id="imageUrl" placeholder="O pega la URL aquí"
-							value="https://tudiariohuanuco.pe/wp-content/uploads/2022/10/senor-de-burgos-14.jpg">
+						<input type="text" id="imageUrl" placeholder="O pega la URL aquí" value="">
 					</div>
 					<div class="form-group">
 						<label>Enlace para Código QR:</label>
@@ -354,10 +363,16 @@
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-	<script src="config.js"></script>
-	<script src="toast.js"></script>
-	<script src="./pdfGenerator.js"></script>
-	<script src="./script.js"></script>
+	<script src="./src/config.js"></script>
+	<script src="./src/modules/toast.js"></script>
+	<script src="./src/modules/utils.js"></script>
+	<script src="./src/modules/qrGenerator.js"></script>
+	<script src="./src/modules/configManager.js"></script>
+	<script src="./src/modules/ticketRenderer.js"></script>
+	<script src="./src/modules/imageHandler.js"></script>
+	<script src="./src/modules/uiSetup.js"></script>
+	<script src="./src/modules/pdfGenerator.js"></script>
+	<script src="./src/app.js"></script>
 
 </body>
 

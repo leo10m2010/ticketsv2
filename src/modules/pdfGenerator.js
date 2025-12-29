@@ -136,8 +136,24 @@ class PDFGenerator {
                         const ticketWrapper = this.createTicketWrapper(ticketsPerPage);
                         const ticket = createTicket(currentTicket, optimizedConfig);
 
-                        // Escalar ticket para ajustar
-                        const scaleValue = ticketsPerPage === 6 ? '0.68' : '0.56';
+                        // Escalar ticket para ajustar según cantidad por página y modo
+                        const isCompact = optimizedConfig.ticketMode === 'compact';
+                        let scaleValue = '0.56';
+
+                        if (isCompact) {
+                            // Escalas para ticket compacto (más pequeño, escalas más grandes)
+                            if (ticketsPerPage === 1) scaleValue = '1.0';
+                            else if (ticketsPerPage === 2) scaleValue = '1.0';
+                            else if (ticketsPerPage === 4) scaleValue = '1.0';
+                            else if (ticketsPerPage === 6) scaleValue = '0.85';
+                            else scaleValue = '0.72'; // 8 tickets
+                        } else {
+                            // Escalas para ticket completo
+                            if (ticketsPerPage === 1) scaleValue = '1.0';
+                            else if (ticketsPerPage === 2) scaleValue = '1.0';
+                            else if (ticketsPerPage === 4) scaleValue = '0.85';
+                            else if (ticketsPerPage === 6) scaleValue = '0.68';
+                        }
                         const ticketScaled = document.createElement('div');
                         ticketScaled.style.cssText = `
                             transform: scale(${scaleValue});
@@ -287,16 +303,23 @@ class PDFGenerator {
 
     createPageStructure(ticketsPerPage) {
         const div = document.createElement('div');
+        let gap = '0.5mm';
+        let padding = '2mm 3mm';
+        if (ticketsPerPage === 1) { gap = '0'; padding = '5mm'; }
+        else if (ticketsPerPage === 2) { gap = '5mm'; padding = '5mm'; }
+        else if (ticketsPerPage === 4) { gap = '2mm'; padding = '3mm'; }
+        else if (ticketsPerPage === 6) { gap = '1mm'; }
+
         div.style.cssText = `
             width: 210mm;
             height: 297mm;
             background: white;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: ${ticketsPerPage <= 2 ? 'center' : 'flex-start'};
             align-items: center;
-            padding: 2mm 3mm;
-            gap: ${ticketsPerPage === 6 ? '1mm' : '0.5mm'};
+            padding: ${padding};
+            gap: ${gap};
             box-sizing: border-box;
         `;
         return div;
@@ -304,8 +327,20 @@ class PDFGenerator {
 
     createTicketWrapper(ticketsPerPage) {
         const div = document.createElement('div');
+        let height = 'calc((297mm - 4mm - 3.5mm) / 8)'; // default 8
+
+        if (ticketsPerPage === 1) {
+            height = 'auto';
+        } else if (ticketsPerPage === 2) {
+            height = 'calc((297mm - 10mm - 5mm) / 2)';
+        } else if (ticketsPerPage === 4) {
+            height = 'calc((297mm - 6mm - 6mm) / 4)';
+        } else if (ticketsPerPage === 6) {
+            height = 'calc((297mm - 4mm - 5mm) / 6)';
+        }
+
         div.style.cssText = `
-            height: ${ticketsPerPage === 6 ? 'calc((297mm - 4mm - 5mm) / 6)' : 'calc((297mm - 4mm - 3.5mm) / 8)'};
+            height: ${height};
             width: 100%;
             display: flex;
             justify-content: center;
