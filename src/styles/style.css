@@ -2169,6 +2169,20 @@ div[style*="#f39c12"] {
 	.form-row {
 		grid-template-columns: 1fr;
 	}
+
+	/* Botón de tema flotante en móvil */
+	.theme-toggle {
+		position: fixed;
+		top: 16px;
+		bottom: auto;
+		left: auto;
+		right: 16px;
+		z-index: 10002;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		box-shadow: none;
+	}
 }
 
 @media (max-width: 480px) {
