@@ -39,6 +39,32 @@
 	--ring-color: #52525b;
 }
 
+/* Scrollbar oscuro para modo noche */
+.dark-mode ::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+.dark-mode ::-webkit-scrollbar-track {
+	background: #18181b;
+	border-radius: 4px;
+}
+
+.dark-mode ::-webkit-scrollbar-thumb {
+	background: #3f3f46;
+	border-radius: 4px;
+}
+
+.dark-mode ::-webkit-scrollbar-thumb:hover {
+	background: #52525b;
+}
+
+/* Firefox */
+.dark-mode * {
+	scrollbar-width: thin;
+	scrollbar-color: #3f3f46 #18181b;
+}
+
 * {
 	margin: 0;
 	padding: 0;
@@ -1388,18 +1414,8 @@ input.color-picker {
 }
 
 .info-box strong {
-	color: var(--accent-color);
+	color: #3b82f6 !important;
 	font-weight: 700;
-}
-
-.info-box i {
-	color: #6c757d;
-	font-size: 18px;
-}
-
-.info-box strong {
-	color: #2c3e50;
-	font-weight: 600;
 }
 
 @media (max-width: 768px) {
@@ -2139,7 +2155,10 @@ div[style*="#f39c12"] {
 	}
 
 	.btn {
-		width: 100%;
+		width: 100% !important;
+		height: 52px !important;
+		font-size: 15px !important;
+		padding: 12px 16px !important;
 	}
 
 	.color-selector {
@@ -2200,6 +2219,16 @@ div[style*="#f39c12"] {
 
 .mobile-preview-trigger:active {
 	transform: scale(0.9);
+}
+
+/* Cambiar icono cuando el popup está abierto */
+.mobile-preview-trigger.active {
+	background: #dc3545;
+}
+
+.mobile-preview-trigger.active i::before {
+	content: "\f00d";
+	/* fa-times icon */
 }
 
 .mobile-preview-overlay {

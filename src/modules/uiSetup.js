@@ -156,19 +156,26 @@
 
         if (!trigger || !modal || !closeBtn) return;
 
-        const openModal = () => {
-            modal.classList.add('active');
-            // Generar vista previa al abrir por si acaso
-            if (typeof generateLivePreview === 'function') {
-                generateLivePreview();
+        const toggleModal = () => {
+            if (modal.classList.contains('active')) {
+                modal.classList.remove('active');
+                trigger.classList.remove('active');
+            } else {
+                modal.classList.add('active');
+                trigger.classList.add('active');
+                // Generar vista previa al abrir por si acaso
+                if (typeof generateLivePreview === 'function') {
+                    generateLivePreview();
+                }
             }
         };
 
         const closeModal = () => {
             modal.classList.remove('active');
+            trigger.classList.remove('active');
         };
 
-        trigger.addEventListener('click', openModal);
+        trigger.addEventListener('click', toggleModal);
         closeBtn.addEventListener('click', closeModal);
 
         // Cerrar al hacer clic fuera del modal
