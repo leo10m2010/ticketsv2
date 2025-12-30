@@ -13,7 +13,7 @@
 
 	<!-- Fuentes combinadas en una sola petición -->
 	<link
-		href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Staatliches&family=Nanum+Pen+Script&family=Imperial+Script&family=Style+Script&display=swap"
+		href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Staatliches&family=Nanum+Pen+Script&family=Imperial+Script&family=Style+Script&display=swap"
 		rel="stylesheet">
 
 	<link rel="stylesheet" href="https://public.codepenassets.com/css/reset-2.0.min.css">
@@ -30,271 +30,352 @@
 			<button id="themeToggle" class="theme-toggle" title="Cambiar tema">
 				<i class="fas fa-moon"></i>
 			</button>
-			<h1><i class="fas fa-ticket-alt"></i> Generador de Tickets</h1>
+			<div class="page-header">
+				<h1>Generador de Tickets</h1>
+				<p class="page-description">Personaliza y genera tickets profesionales para tus eventos.</p>
+			</div>
 
-			<div class="config-grid">
-				<!-- COLUMNA 1: Secciones pequeñas -->
-				<div class="config-section">
-					<h3>🔢 Rango de Números</h3>
-					<div class="form-row">
-						<div class="form-group">
-							<label>Desde:</label>
-							<input type="number" id="startNumber" value="1" min="1">
-						</div>
-						<div class="form-group">
-							<label>Hasta:</label>
-							<input type="number" id="endNumber" value="50" min="1">
-						</div>
-					</div>
-					<div class="form-group">
-						<label>Modo de Ticket:</label>
-						<select id="ticketMode">
-							<option value="full">Completo (3 secciones)</option>
-							<option value="compact">Compacto (imagen + talon)</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label>Tickets por Página:</label>
-						<select id="ticketsPerPage">
-							<option value="1">1 ticket</option>
-							<option value="2">2 tickets</option>
-							<option value="4">4 tickets</option>
-							<option value="6">6 tickets</option>
-							<option value="8">8 tickets</option>
-						</select>
-					</div>
-				</div>
-
-				<div class="config-section">
-					<h3>📅 Fecha del Evento</h3>
-					<div class="form-group">
-						<label>Seleccionar Fecha:</label>
-						<input type="date" id="eventDate" value="2025-10-17">
-					</div>
-					<div class="form-row">
-						<div class="form-group">
-							<label>Día:</label>
-							<input type="text" id="dayOfWeek" value="VIERNES" readonly>
-						</div>
-						<div class="form-group">
-							<label>Año:</label>
-							<input type="text" id="year" value="2025" readonly>
-						</div>
-					</div>
-					<div class="form-group">
-						<label>Fecha (texto):</label>
-						<input type="text" id="dateText" value="17 DE OCTUBRE" readonly>
-					</div>
-				</div>
-
-				<div class="config-section">
-					<h3>🎨 Color de Fecha</h3>
-					<div class="color-selector">
-						<div class="color-option selected" data-color="#d83565" style="background-color: #d83565;">
-						</div>
-						<div class="color-option" data-color="#F23545" style="background-color: #F23545;"></div>
-						<div class="color-option" data-color="#157EBF" style="background-color: #157EBF;"></div>
-						<div class="color-option" data-color="#1BA64B" style="background-color: #1BA64B;"></div>
-						<div class="color-option" data-color="#F2C029" style="background-color: #F2C029;"></div>
-						<input type="color" id="dateColorCustom" value="#d83565" class="color-picker">
-					</div>
-					<input type="hidden" id="dateColor" value="#d83565">
-				</div>
-
-				<div class="config-section">
-					<h3>📝 Configuración de Textos</h3>
-
-					<!-- TÍTULO -->
-					<div class="text-config-group">
-						<h4>Título Principal</h4>
-						<div class="form-group">
-							<label>Texto:</label>
-							<input type="text" id="eventTitle" value="MES MORADO">
-						</div>
-						<div class="form-row">
+			<div class="layout-main">
+				<div class="config-panel">
+					<div class="config-list">
+						<!-- COLUMNA 1: Secciones pequeñas -->
+						<div class="config-section">
+							<h3>🔢 Rango de Números</h3>
+							<div class="form-row">
+								<div class="form-group">
+									<label>Desde:</label>
+									<input type="number" id="startNumber" value="1" min="1">
+								</div>
+								<div class="form-group">
+									<label>Hasta:</label>
+									<input type="number" id="endNumber" value="50" min="1">
+								</div>
+							</div>
 							<div class="form-group">
-								<label>Fuente:</label>
-								<select id="titleFont">
-									<option value="Staatliches" selected>Staatliches</option>
-									<option value="Poppins">Poppins</option>
-									<option value="Nanum Pen Script">Nanum Pen Script</option>
+								<label>Modo de Ticket:</label>
+								<select id="ticketMode">
+									<option value="full">Completo (3 secciones)</option>
+									<option value="compact">Compacto (imagen + talon)</option>
+								</select>
+							</div>
+							<div class="form-group">
+								<label>Tickets por Página:</label>
+								<select id="ticketsPerPage">
+									<option value="1">1 ticket</option>
+									<option value="2">2 tickets</option>
+									<option value="4">4 tickets</option>
+									<option value="6">6 tickets</option>
+									<option value="8">8 tickets</option>
+								</select>
+							</div>
+						</div>
+
+						<div class="config-section">
+							<h3>📅 Fecha del Evento</h3>
+							<div class="form-group">
+								<label>Seleccionar Fecha:</label>
+								<input type="date" id="eventDate" value="2025-10-17">
+							</div>
+							<div class="form-row">
+								<div class="form-group">
+									<label>Día:</label>
+									<input type="text" id="dayOfWeek" value="VIERNES" readonly>
+								</div>
+								<div class="form-group">
+									<label>Año:</label>
+									<input type="text" id="year" value="2025" readonly>
+								</div>
+							</div>
+							<div class="form-group">
+								<label>Fecha (texto):</label>
+								<input type="text" id="dateText" value="17 DE OCTUBRE" readonly>
+							</div>
+						</div>
+
+						<div class="config-section">
+							<h3>🎨 Color de Fecha</h3>
+							<div class="color-selector" id="dateColorSelector">
+								<div class="color-presets-wrapper">
+									<div class="color-options">
+										<div class="color-option selected" data-color="#d83565"
+											style="background-color: #d83565;"></div>
+										<div class="color-option" data-color="#F23545"
+											style="background-color: #F23545;"></div>
+										<div class="color-option" data-color="#157EBF"
+											style="background-color: #157EBF;"></div>
+										<div class="color-option" data-color="#1BA64B"
+											style="background-color: #1BA64B;"></div>
+										<div class="color-option" data-color="#F2C029"
+											style="background-color: #F2C029;"></div>
+									</div>
+									<div class="color-inputs-group">
+										<div class="hex-input-wrapper">
+											<span class="hex-prefix">#</span>
+											<input type="text" class="hex-input" id="dateColorHex" placeholder="D83565"
+												maxlength="6">
+										</div>
+										<div class="color-picker-wrapper">
+											<input type="color" id="dateColorCustom" value="#d83565"
+												class="color-picker">
+										</div>
+									</div>
+								</div>
+								<input type="hidden" id="dateColor" value="#d83565">
+							</div>
+						</div>
+
+						<div class="config-section">
+							<h3>📝 Configuración de Textos</h3>
+
+							<!-- TÍTULO -->
+							<div class="text-config-group">
+								<h4>Título Principal</h4>
+								<div class="form-group">
+									<label>Texto:</label>
+									<input type="text" id="eventTitle" value="MES MORADO">
+								</div>
+								<div class="form-row">
+									<div class="form-group">
+										<label>Fuente:</label>
+										<select id="titleFont">
+											<option value="Staatliches" selected>Staatliches</option>
+											<option value="Poppins">Poppins</option>
+											<option value="Nanum Pen Script">Nanum Pen Script</option>
+											<option value="Imperial Script">Imperial Script</option>
+											<option value="Style Script">Style Script</option>
+											<option value="Arial">Arial</option>
+											<option value="Impact">Impact</option>
+										</select>
+									</div>
+									<div class="form-group">
+										<label>Tamaño (px):</label>
+										<input type="number" id="titleSize" value="45" min="20" max="100">
+									</div>
+								</div>
+								<div class="form-group">
+									<label>Color:</label>
+									<div class="color-selector" id="titleColorSelector">
+										<div class="color-presets-wrapper">
+											<div class="color-options">
+												<div class="color-option" data-color="#F23545"
+													style="background-color: #F23545;"></div>
+												<div class="color-option" data-color="#157EBF"
+													style="background-color: #157EBF;"></div>
+												<div class="color-option" data-color="#1BA64B"
+													style="background-color: #1BA64B;"></div>
+												<div class="color-option" data-color="#F2C029"
+													style="background-color: #F2C029;"></div>
+												<div class="color-option selected" data-color="#4a437e"
+													style="background-color: #4a437e;"></div>
+											</div>
+											<div class="color-inputs-group">
+												<div class="hex-input-wrapper">
+													<span class="hex-prefix">#</span>
+													<input type="text" class="hex-input" id="titleColorHex"
+														placeholder="4A437E" maxlength="6">
+												</div>
+												<div class="color-picker-wrapper">
+													<input type="color" id="titleColorCustom" value="#4a437e"
+														class="color-picker">
+												</div>
+											</div>
+										</div>
+										<input type="hidden" id="titleColor" value="#4a437e">
+									</div>
+								</div>
+							</div>
+
+							<!-- SUBTÍTULO -->
+							<div class="text-config-group">
+								<h4>Subtítulo</h4>
+								<div class="form-group">
+									<label>Texto:</label>
+									<input type="text" id="eventSubtitle" value="Señor de Burgos">
+								</div>
+								<div class="form-row">
+									<div class="form-group">
+										<label>Fuente:</label>
+										<select id="subtitleFont">
+											<option value="Nanum Pen Script" selected>Nanum Pen Script</option>
+											<option value="Imperial Script">Imperial Script</option>
+											<option value="Style Script">Style Script</option>
+											<option value="Poppins">Poppins</option>
+											<option value="Staatliches">Staatliches</option>
+											<option value="Cursive">Cursive</option>
+											<option value="Georgia">Georgia</option>
+										</select>
+									</div>
+									<div class="form-group">
+										<label>Tamaño (px):</label>
+										<input type="number" id="subtitleSize" value="25" min="15" max="60">
+									</div>
+								</div>
+								<div class="form-group">
+									<label>Color:</label>
+									<div class="color-selector" id="subtitleColorSelector">
+										<div class="color-presets-wrapper">
+											<div class="color-options">
+												<div class="color-option selected" data-color="#d83565"
+													style="background-color: #d83565;"></div>
+												<div class="color-option" data-color="#F23545"
+													style="background-color: #F23545;"></div>
+												<div class="color-option" data-color="#157EBF"
+													style="background-color: #157EBF;"></div>
+												<div class="color-option" data-color="#1BA64B"
+													style="background-color: #1BA64B;"></div>
+												<div class="color-option" data-color="#F2C029"
+													style="background-color: #F2C029;"></div>
+											</div>
+											<div class="color-inputs-group">
+												<div class="hex-input-wrapper">
+													<span class="hex-prefix">#</span>
+													<input type="text" class="hex-input" id="subtitleColorHex"
+														placeholder="D83565" maxlength="6">
+												</div>
+												<div class="color-picker-wrapper">
+													<input type="color" id="subtitleColorCustom" value="#d83565"
+														class="color-picker">
+												</div>
+											</div>
+										</div>
+										<input type="hidden" id="subtitleColor" value="#d83565">
+									</div>
+								</div>
+							</div>
+
+							<div class="form-group">
+								<label>Marca/Texto Lateral:</label>
+								<input type="text" id="brandText" value="UNHEVAL">
+							</div>
+						</div>
+
+						<div class="config-section">
+							<h3>📍 Ubicación</h3>
+							<div class="form-group">
+								<label>Ubicación del Evento:</label>
+								<input type="text" id="locationFull" value="UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN"
+									placeholder="Ej: UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN">
+							</div>
+							<input type="hidden" id="location1" value="UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN">
+							<input type="hidden" id="location2" value="">
+						</div>
+
+						<div class="config-section">
+							<h3>🖼️ Imágenes y QR</h3>
+							<div class="form-group">
+								<label>Imagen Principal:</label>
+								<div class="image-upload-area" id="imageDropZone">
+									<i class="fas fa-cloud-upload-alt"></i>
+									<p>Arrastra una imagen aquí o haz clic</p>
+									<input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+								</div>
+								<input type="text" id="imageUrl" placeholder="O pega la URL aquí" value="">
+							</div>
+							<div class="form-group">
+								<label>Enlace para Código QR:</label>
+								<input type="text" id="qrLink" placeholder="Ej: https://unheval.edu.pe/evento"
+									value="https://unheval.edu.pe">
+								<small style="color: #7f8c8d; font-size: 12px;">El QR se generará automáticamente con
+									este
+									enlace</small>
+							</div>
+						</div>
+
+						<div class="config-section">
+							<h3>🎫 Vale</h3>
+							<div class="form-row">
+								<div class="form-group">
+									<label>Tipo:</label>
+									<input type="text" id="voucherType" value="REFRIGERIO">
+								</div>
+								<div class="form-group">
+									<label>Cantidad:</label>
+									<input type="number" id="voucherQuantity" value="1" min="1">
+								</div>
+							</div>
+							<div class="form-group">
+								<label>Fuente del Vale:</label>
+								<select id="voucherFont">
+									<option value="Staatliches" selected>Staatliches (Original)</option>
 									<option value="Imperial Script">Imperial Script</option>
 									<option value="Style Script">Style Script</option>
+									<option value="Poppins">Poppins</option>
 									<option value="Arial">Arial</option>
 									<option value="Impact">Impact</option>
 								</select>
 							</div>
 							<div class="form-group">
-								<label>Tamaño (px):</label>
-								<input type="number" id="titleSize" value="45" min="20" max="100">
+								<label>Color:</label>
+								<div class="color-selector" id="voucherColorSelector">
+									<div class="color-presets-wrapper">
+										<div class="color-options">
+											<div class="color-option selected" data-color="#000000"
+												style="background-color: #000000;"></div>
+											<div class="color-option" data-color="#F23545"
+												style="background-color: #F23545;"></div>
+											<div class="color-option" data-color="#157EBF"
+												style="background-color: #157EBF;"></div>
+											<div class="color-option" data-color="#1BA64B"
+												style="background-color: #1BA64B;"></div>
+											<div class="color-option" data-color="#F2C029"
+												style="background-color: #F2C029;"></div>
+										</div>
+										<div class="color-inputs-group">
+											<div class="hex-input-wrapper">
+												<span class="hex-prefix">#</span>
+												<input type="text" class="hex-input" id="voucherColorHex"
+													placeholder="000000" maxlength="6">
+											</div>
+											<div class="color-picker-wrapper">
+												<input type="color" id="voucherColorCustom" value="#000000"
+													class="color-picker">
+											</div>
+										</div>
+									</div>
+									<input type="hidden" id="voucherColor" value="#000000">
+								</div>
 							</div>
 						</div>
-						<div class="form-group">
-							<label>Color:</label>
-							<div class="color-selector">
-								<div class="color-option" data-color="#F23545" style="background-color: #F23545;"></div>
-								<div class="color-option" data-color="#157EBF" style="background-color: #157EBF;"></div>
-								<div class="color-option" data-color="#1BA64B" style="background-color: #1BA64B;"></div>
-								<div class="color-option" data-color="#F2C029" style="background-color: #F2C029;"></div>
-								<div class="color-option selected" data-color="#4a437e"
-									style="background-color: #4a437e;"></div>
-								<input type="color" id="titleColorCustom" value="#4a437e" class="color-picker">
-							</div>
-							<input type="hidden" id="titleColor" value="#4a437e">
-						</div>
-					</div>
-
-					<!-- SUBTÍTULO -->
-					<div class="text-config-group">
-						<h4>Subtítulo</h4>
-						<div class="form-group">
-							<label>Texto:</label>
-							<input type="text" id="eventSubtitle" value="Señor de Burgos">
-						</div>
-						<div class="form-row">
+						<div class="config-section split-config" style="grid-row: span 1;">
+							<h3>💾 Opciones de Exportación</h3>
 							<div class="form-group">
-								<label>Fuente:</label>
-								<select id="subtitleFont">
-									<option value="Nanum Pen Script" selected>Nanum Pen Script</option>
-									<option value="Imperial Script">Imperial Script</option>
-									<option value="Style Script">Style Script</option>
-									<option value="Poppins">Poppins</option>
-									<option value="Staatliches">Staatliches</option>
-									<option value="Cursive">Cursive</option>
-									<option value="Georgia">Georgia</option>
-								</select>
-							</div>
-							<div class="form-group">
-								<label>Tamaño (px):</label>
-								<input type="number" id="subtitleSize" value="25" min="15" max="60">
+								<label class="checkbox-container"
+									style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-primary); font-size: 13px;">
+									<input type="checkbox" id="splitPdf" checked style="width: auto;">
+									Dividir PDF automáticamente (>200 tickets)
+								</label>
 							</div>
 						</div>
-						<div class="form-group">
-							<label>Color:</label>
-							<div class="color-selector">
-								<div class="color-option selected" data-color="#d83565"
-									style="background-color: #d83565;"></div>
-								<div class="color-option" data-color="#F23545" style="background-color: #F23545;"></div>
-								<div class="color-option" data-color="#157EBF" style="background-color: #157EBF;"></div>
-								<div class="color-option" data-color="#1BA64B" style="background-color: #1BA64B;"></div>
-								<div class="color-option" data-color="#F2C029" style="background-color: #F2C029;"></div>
-								<input type="color" id="subtitleColorCustom" value="#d83565" class="color-picker">
-							</div>
-							<input type="hidden" id="subtitleColor" value="#d83565">
-						</div>
+					</div> <!-- End config-list -->
+
+					<div class="button-group">
+						<button id="downloadPdfButton" class="btn btn-success">
+							<i class="fas fa-download"></i> Descargar PDF Directamente
+						</button>
+						<button id="printButton" class="btn btn-primary" style="margin-left: 10px;">
+							<i class="fas fa-print"></i> Imprimir (Vista Previa)
+						</button>
 					</div>
 
-					<div class="form-group">
-						<label>Marca/Texto Lateral:</label>
-						<input type="text" id="brandText" value="UNHEVAL">
+					<div class="info-box">
+						<i class="fas fa-info-circle"></i>
+						Los tickets se generarán con numeración desde <strong id="previewStart">0001</strong> hasta
+						<strong id="previewEnd">0050</strong>.
+						La vista previa se actualiza automáticamente a la derecha.
 					</div>
-				</div>
+				</div> <!-- End config-panel -->
 
-				<div class="config-section">
-					<h3>📍 Ubicación</h3>
-					<div class="form-group">
-						<label>Ubicación del Evento:</label>
-						<input type="text" id="locationFull" value="UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN"
-							placeholder="Ej: UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN">
+				<aside class="preview-sidebar">
+					<div id="previewArea" class="preview-area-sticky">
+						<h2 style="text-align: center; color: var(--text-primary); margin-bottom: 20px;">
+							<i class="fas fa-eye"></i> Vista Previa
+						</h2>
+						<div id="previewContainer" class="preview-container"></div>
 					</div>
-					<input type="hidden" id="location1" value="UNIVERSIDAD NACIONAL HERMILIO VALDIZÁN">
-					<input type="hidden" id="location2" value="">
-				</div>
-
-				<div class="config-section">
-					<h3>🖼️ Imágenes y QR</h3>
-					<div class="form-group">
-						<label>Imagen Principal:</label>
-						<div class="image-upload-area" id="imageDropZone">
-							<i class="fas fa-cloud-upload-alt"></i>
-							<p>Arrastra una imagen aquí o haz clic</p>
-							<input type="file" id="imageFileInput" accept="image/*" style="display: none;">
-						</div>
-						<input type="text" id="imageUrl" placeholder="O pega la URL aquí" value="">
-					</div>
-					<div class="form-group">
-						<label>Enlace para Código QR:</label>
-						<input type="text" id="qrLink" placeholder="Ej: https://unheval.edu.pe/evento"
-							value="https://unheval.edu.pe">
-						<small style="color: #7f8c8d; font-size: 12px;">El QR se generará automáticamente con este
-							enlace</small>
-					</div>
-				</div>
-
-				<div class="config-section">
-					<h3>🎫 Vale</h3>
-					<div class="form-row">
-						<div class="form-group">
-							<label>Tipo:</label>
-							<input type="text" id="voucherType" value="REFRIGERIO">
-						</div>
-						<div class="form-group">
-							<label>Cantidad:</label>
-							<input type="number" id="voucherQuantity" value="1" min="1">
-						</div>
-					</div>
-					<div class="form-group">
-						<label>Fuente del Vale:</label>
-						<select id="voucherFont">
-							<option value="Staatliches" selected>Staatliches (Original)</option>
-							<option value="Imperial Script">Imperial Script</option>
-							<option value="Style Script">Style Script</option>
-							<option value="Poppins">Poppins</option>
-							<option value="Arial">Arial</option>
-							<option value="Impact">Impact</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label>Color:</label>
-						<div class="color-selector">
-							<div class="color-option selected" data-color="#000000" style="background-color: #000000;">
-							</div>
-							<div class="color-option" data-color="#F23545" style="background-color: #F23545;"></div>
-							<div class="color-option" data-color="#157EBF" style="background-color: #157EBF;"></div>
-							<div class="color-option" data-color="#1BA64B" style="background-color: #1BA64B;"></div>
-							<div class="color-option" data-color="#F2C029" style="background-color: #F2C029;"></div>
-							<input type="color" id="voucherColorCustom" value="#000000" class="color-picker">
-						</div>
-						<input type="hidden" id="voucherColor" value="#000000">
-					</div>
-				</div>
-				<div class="config-section split-config" style="grid-row: span 1;">
-					<h3>💾 Opciones de Exportación</h3>
-					<div class="form-group">
-						<label class="checkbox-container"
-							style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-primary); font-size: 13px;">
-							<input type="checkbox" id="splitPdf" checked style="width: auto;">
-							Dividir PDF automáticamente (>200 tickets)
-						</label>
-					</div>
-				</div>
-			</div>
-
-			<div class="button-group">
-				<button id="downloadPdfButton" class="btn btn-success">
-					<i class="fas fa-download"></i> Descargar PDF Directamente
-				</button>
-				<button id="printButton" class="btn btn-primary" style="margin-left: 10px;">
-					<i class="fas fa-print"></i> Imprimir (Vista Previa)
-				</button>
-			</div>
-
-			<div class="info-box">
-				<i class="fas fa-info-circle"></i>
-				Los tickets se generarán con numeración desde <strong id="previewStart">0001</strong> hasta <strong
-					id="previewEnd">0050</strong>.
-				La vista previa se actualiza automáticamente abajo.
-			</div>
-		</div>
-	</div>
-
-	<!-- Área de Vista Previa en Vivo -->
-	<div id="previewArea" class="preview-area">
-		<h2 style="text-align: center; color: #4a437e; margin-bottom: 20px;">
-			<i class="fas fa-eye"></i> Vista Previa de Tickets
-		</h2>
-		<div id="previewContainer" class="preview-container"></div>
-	</div>
+				</aside>
+			</div> <!-- End layout-main -->
+		</div> <!-- End dashboard-container -->
+	</div> <!-- End dashboard -->
 
 	<!-- Área de Impresión (oculta) -->
 	<div id="printArea" class="print-area"></div>
@@ -362,6 +443,26 @@
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+	<!-- Botón flotante para vista previa móvil -->
+	<button id="mobilePreviewTrigger" class="mobile-preview-trigger" title="Ver Vista Previa">
+		<i class="fas fa-eye"></i>
+	</button>
+
+	<!-- Modal de Vista Previa Móvil -->
+	<div id="mobilePreviewModal" class="mobile-preview-overlay">
+		<div class="mobile-preview-modal">
+			<div class="mobile-preview-header">
+				<h3><i class="fas fa-eye"></i> Vista Previa</h3>
+				<button id="closeMobilePreview" class="close-modal-btn">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<div id="mobilePreviewContainer" class="mobile-preview-content">
+				<!-- Los tickets se renderizarán aquí -->
+			</div>
+		</div>
+	</div>
 
 	<script src="./src/config.js"></script>
 	<script src="./src/modules/toast.js"></script>

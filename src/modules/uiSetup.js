@@ -31,54 +31,76 @@
      * Configura selectores de color
      */
     function setupColorSelectors() {
-        function setupColorSelector(pickerId, hiddenId) {
+        function setupColorSelector(pickerId, hiddenId, hexId) {
             const picker = document.getElementById(pickerId);
-            if (!picker) return;
+            const hexInput = document.getElementById(hexId);
+            const hiddenInput = document.getElementById(hiddenId);
+            if (!picker || !hexInput || !hiddenInput) return;
 
             const container = picker.closest('.color-selector');
             if (!container) return;
 
             const colorOptions = container.querySelectorAll('.color-option');
 
-            const oldHandler = container._colorClickHandler;
-            if (oldHandler) {
-                container.removeEventListener('click', oldHandler);
-            }
+            // Función unificada para actualizar el color
+            const updateAll = (newColor, source) => {
+                // Normalizar color (asegurar #)
+                if (newColor.indexOf('#') !== 0) newColor = '#' + newColor;
 
-            const handleContainerClick = (e) => {
-                const option = e.target.closest('.color-option');
-                if (option) {
-                    colorOptions.forEach(opt => opt.classList.remove('selected'));
-                    option.classList.add('selected');
-                    const color = option.dataset.color;
-                    document.getElementById(hiddenId).value = color;
-                    picker.value = color;
+                // Validar formato hex
+                if (!/^#[0-9A-Fa-f]{6}$/.test(newColor)) return;
+
+                // Actualizar estado visual de los presets
+                colorOptions.forEach(opt => {
+                    const isMatch = opt.dataset.color.toLowerCase() === newColor.toLowerCase();
+                    opt.classList.toggle('selected', isMatch);
+                });
+
+                // Sincronizar componentes
+                if (source !== 'picker') picker.value = newColor;
+                if (source !== 'hex') hexInput.value = newColor.replace('#', '').toUpperCase();
+                hiddenInput.value = newColor;
+
+                // Actualizar preview
+                if (typeof generateLivePreview === 'function') {
                     generateLivePreview();
                 }
             };
 
-            container._colorClickHandler = handleContainerClick;
-            container.addEventListener('click', handleContainerClick);
+            // Evento para presets
+            container.addEventListener('click', (e) => {
+                const option = e.target.closest('.color-option');
+                if (option) {
+                    updateAll(option.dataset.color, 'preset');
+                }
+            });
 
-            const oldPickerHandler = picker._inputHandler;
-            if (oldPickerHandler) {
-                picker.removeEventListener('input', oldPickerHandler);
-            }
+            // Evento para el picker nativo
+            picker.addEventListener('input', function () {
+                updateAll(this.value, 'picker');
+            });
 
-            const handlePickerInput = function () {
-                colorOptions.forEach(opt => opt.classList.remove('selected'));
-                document.getElementById(hiddenId).value = this.value;
-                generateLivePreview();
-            };
+            // Evento para el campo de texto HEX
+            hexInput.addEventListener('input', function () {
+                let val = this.value;
+                if (val.length === 6) {
+                    updateAll(val, 'hex');
+                }
+            });
 
-            picker._inputHandler = handlePickerInput;
-            picker.addEventListener('input', handlePickerInput);
+            // Al perder el foco, asegurar el formato correcto
+            hexInput.addEventListener('blur', function () {
+                this.value = hiddenInput.value.replace('#', '').toUpperCase();
+            });
+
+            // Inicializar el valor actual en el campo de texto
+            hexInput.value = hiddenInput.value.replace('#', '').toUpperCase();
         }
 
-        setupColorSelector('dateColorCustom', 'dateColor');
-        setupColorSelector('titleColorCustom', 'titleColor');
-        setupColorSelector('subtitleColorCustom', 'subtitleColor');
-        setupColorSelector('voucherColorCustom', 'voucherColor');
+        setupColorSelector('dateColorCustom', 'dateColor', 'dateColorHex');
+        setupColorSelector('titleColorCustom', 'titleColor', 'titleColorHex');
+        setupColorSelector('subtitleColorCustom', 'subtitleColor', 'subtitleColorHex');
+        setupColorSelector('voucherColorCustom', 'voucherColor', 'voucherColorHex');
     }
 
     /**
@@ -123,17 +145,72 @@
         generateLivePreview();
     }
 
+    /**
+     * Configura el modal de vista previa móvil
+     */
+    function setupMobilePreview() {
+        const trigger = document.getElementById('mobilePreviewTrigger');
+        const modal = document.getElementById('mobilePreviewModal');
+        const closeBtn = document.getElementById('closeMobilePreview');
+        const configPanel = document.querySelector('.config-panel');
+
+        if (!trigger || !modal || !closeBtn) return;
+
+        const openModal = () => {
+            modal.classList.add('active');
+            // Generar vista previa al abrir por si acaso
+            if (typeof generateLivePreview === 'function') {
+                generateLivePreview();
+            }
+        };
+
+        const closeModal = () => {
+            modal.classList.remove('active');
+        };
+
+        trigger.addEventListener('click', openModal);
+        closeBtn.addEventListener('click', closeModal);
+
+        // Cerrar al hacer clic fuera del modal
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // Mover el preview arriba cuando el teclado esté abierto (input con foco)
+        if (configPanel) {
+            configPanel.addEventListener('focusin', (e) => {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+                    modal.classList.add('keyboard-open');
+                }
+            });
+
+            configPanel.addEventListener('focusout', (e) => {
+                // Pequeño delay para evitar parpadeo al cambiar entre inputs
+                setTimeout(() => {
+                    if (!configPanel.contains(document.activeElement) ||
+                        (document.activeElement.tagName !== 'INPUT' &&
+                            document.activeElement.tagName !== 'SELECT' &&
+                            document.activeElement.tagName !== 'TEXTAREA')) {
+                        modal.classList.remove('keyboard-open');
+                    }
+                }, 100);
+            });
+        }
+    }
+
     // Exportar al namespace global
     global.UISetup = {
         setupTheme,
         setupColorSelectors,
         updatePreview,
-        updateDateText
+        updateDateText,
+        setupMobilePreview
     };
 
     global.setupTheme = setupTheme;
     global.setupColorSelectors = setupColorSelectors;
     global.updatePreview = updatePreview;
     global.updateDateText = updateDateText;
+    global.setupMobilePreview = setupMobilePreview;
 
 })(window);

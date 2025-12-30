@@ -13,7 +13,7 @@ const APP_CONFIG = {
 
     // Configuración de vista previa
     PREVIEW: {
-        MAX_TICKETS_SHOWN: 10,        // Máximo de tickets en preview
+        MAX_TICKETS_SHOWN: 5,        // Máximo de tickets en preview
         DEBOUNCE_DELAY: 300           // Delay para debounce en ms
     },
 

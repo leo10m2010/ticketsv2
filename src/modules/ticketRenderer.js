@@ -172,43 +172,52 @@
      */
     function generateLivePreview() {
         const config = getConfig();
-        const previewContainer = getElement('previewContainer', false);
+        const containers = [
+            document.getElementById('previewContainer'),
+            document.getElementById('mobilePreviewContainer')
+        ].filter(el => el !== null);
 
-        if (!previewContainer) {
-            console.warn('Preview container no encontrado, saltando preview');
+        if (containers.length === 0) {
+            console.warn('Preview containers no encontrados');
             return;
         }
 
-        // Limpiar contenedor y usar DocumentFragment para mejor rendimiento
-        previewContainer.innerHTML = '';
-        const fragment = document.createDocumentFragment();
+        containers.forEach(container => {
+            const isMobile = container.id === 'mobilePreviewContainer';
 
-        // Limitar la vista previa
-        const appConfig = global.APP_CONFIG || { PREVIEW: { MAX_TICKETS_SHOWN: 10 } };
-        const maxPreview = Math.min(config.endNumber - config.startNumber + 1, appConfig.PREVIEW.MAX_TICKETS_SHOWN);
+            // Limpiar contenedor y usar DocumentFragment
+            container.innerHTML = '';
+            const fragment = document.createDocumentFragment();
 
-        // Generar tickets de muestra
-        for (let i = 0; i < maxPreview; i++) {
-            const ticketNumber = config.startNumber + i;
-            const ticket = createTicket(ticketNumber, config);
-            if (ticket) fragment.appendChild(ticket);
-        }
+            // Limitar la vista previa (1 para móvil, 10 para escritorio)
+            const appConfig = global.APP_CONFIG || { PREVIEW: { MAX_TICKETS_SHOWN: 10 } };
+            const maxPreviewCount = isMobile ? 1 : Math.min(config.endNumber - config.startNumber + 1, appConfig.PREVIEW.MAX_TICKETS_SHOWN);
 
-        // Si hay más tickets, mostrar mensaje
-        const totalTickets = config.endNumber - config.startNumber + 1;
-        if (totalTickets > appConfig.PREVIEW.MAX_TICKETS_SHOWN) {
-            const moreInfo = document.createElement('div');
-            moreInfo.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 20px; color: #4a437e; font-size: 18px; font-weight: bold;';
+            // Generar tickets de muestra
+            for (let i = 0; i < maxPreviewCount; i++) {
+                const ticketNumber = config.startNumber + i;
+                const ticket = createTicket(ticketNumber, config);
+                if (ticket) fragment.appendChild(ticket);
+            }
 
-            const icon = document.createElement('i');
-            icon.className = 'fas fa-info-circle';
-            moreInfo.appendChild(icon);
+            // Si hay más tickets y no es móvil, mostrar mensaje
+            if (!isMobile) {
+                const totalTickets = config.endNumber - config.startNumber + 1;
+                if (totalTickets > appConfig.PREVIEW.MAX_TICKETS_SHOWN) {
+                    const moreInfo = document.createElement('div');
+                    moreInfo.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 20px; color: #4a437e; font-size: 14px; font-weight: bold; width: 100%;';
 
-            moreInfo.appendChild(document.createTextNode(` Mostrando ${appConfig.PREVIEW.MAX_TICKETS_SHOWN} de ${totalTickets} tickets. Todos se generarán al imprimir.`));
-            fragment.appendChild(moreInfo);
-        }
+                    const icon = document.createElement('i');
+                    icon.className = 'fas fa-info-circle';
+                    moreInfo.appendChild(icon);
 
-        previewContainer.appendChild(fragment);
+                    moreInfo.appendChild(document.createTextNode(` +${totalTickets - appConfig.PREVIEW.MAX_TICKETS_SHOWN} tickets...`));
+                    fragment.appendChild(moreInfo);
+                }
+            }
+
+            container.appendChild(fragment);
+        });
     }
 
     // Exportar al namespace global

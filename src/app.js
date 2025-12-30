@@ -187,6 +187,11 @@
         // Configurar tema oscuro/claro
         setupTheme();
 
+        // Configurar vista previa móvil
+        if (typeof setupMobilePreview === 'function') {
+            setupMobilePreview();
+        }
+
         // Generar preview inicial
         const qrLink = document.getElementById('qrLink');
         if (qrLink && qrLink.value) {
